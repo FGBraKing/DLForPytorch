@@ -22,4 +22,6 @@ python test.py --dataroot /home/users/lf/CODE/PycharmProjects/DLForPytorch/trace
                --num_test 200 \
                --no_dropout \
                --seed 1008 \
-               --verbose
+               --verbose  \
+               --epoch 330
+

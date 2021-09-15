@@ -34,7 +34,8 @@ python train.py --dataroot /home/users/lf/CODE/PycharmProjects/DLForPytorch/trac
                 --continue_train \
                 --load_iter 0 \
                 --epoch latest \
-                --epoch_count 275
+                --epoch_count 275 \
+                --data_phase 'train'
 
 
 

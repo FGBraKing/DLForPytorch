@@ -1,0 +1,39 @@
+# basic parameters
+name : 'experiment_name'
+dataroot : ""
+logs_dir : ""
+results_dir : ""
+checkpoints_dir : './checkpoints'
+seed : ""
+
+# running parameters
+gpu_ids : ""
+isTrain : ""
+epoch_start : ""
+epoch_end : ""
+epoch_decay : ""
+lr : ""
+lr_policy : ""
+save_epoch_start : ""
+save_epoch_freq : ""
+save_iter_start : ""
+save_iter_freq : ""
+save_by_iter : ""
+
+# model parameters
+model_name : ""
+
+# dataset parameters
+dataset_name : ""
+batchsize : 1
+num_threads : 8
+load_size : 256
+crop_size : 256
+preprocess : ""
+
+
+# optional parameters(some parameters used to visualize)
+suffix : ''
+
+
+
