@@ -1,0 +1,145 @@
+'''
+三级配置文件----第一级
+把所有会用到的参数项都在这里提供，并提供一些不再改变的固定参数值
+'''
+from yacs.config import CfgNode as CN
+
+
+_C = CN(new_allowed=False)  # init_dict=None, key_list=None,
+
+
+# ---------------------------------------------------------------------------- #
+# basic
+# ---------------------------------------------------------------------------- #
+_C.name = None
+_C.dataset_name = None
+_C.model_name = None
+_C.seed = 1008
+_C.gpu_ids = None
+_C.visible_gpu = None
+
+# ---------------------------------------------------------------------------- #
+# distribution
+# ---------------------------------------------------------------------------- #
+_C.DP = None
+_C.DDP = None
+_C.SyncBatchNorm = None
+_C.world_size = None
+_C.rank = None
+_C.local_rank = None
+_C.dist_url = None
+_C.dist_backend = 'nccl'
+# ---------------------------------------------------------------------------- #
+# dataset
+# ---------------------------------------------------------------------------- #
+# dataset
+_C.dataroot = None
+_C.phase = None
+_C.serial_batches = None
+_C.custom = None
+_C.preprocess = None
+_C.crop_size = None
+_C.target_size = None
+_C.scale = None
+_C.bright_mu = None
+_C.bright_sigma = None
+_C.elastic_alpha = None
+_C.elastic_sigma = None
+_C.shift_mu = None
+_C.shift_sigma = None
+_C.order_data = 3
+_C.order_seg = 1
+# dataloader
+_C.num_threads = None
+_C.batch_size = None
+_C.max_dataset_size = float('inf')
+# ---------------------------------------------------------------------------- #
+# module
+# ---------------------------------------------------------------------------- #
+# model
+_C.input_nc = None
+_C.output_nc = None
+_C.init_channel_number = None
+_C.up_interpolate = None
+_C.conv_order = None
+# loss
+_C.reduction = None
+_C.ignore_index = None
+_C.smooth = None
+# initialization
+_C.init_type = None
+_C.init_gain = None
+_C.init_std = None
+# ---------------------------------------------------------------------------- #
+# optimizer
+# ---------------------------------------------------------------------------- #
+# optimizer
+_C.optimizer_name = None
+_C.lr = None
+_C.weight_decay = None
+_C.momentum = 0.9
+_C.beta1 = 0.9
+# scheduler
+_C.lr_policy = None
+_C.decay_epochs = None
+_C.decay_rate = None
+_C.warmup_lr = None
+_C.warmup_epochs = None
+_C.lr_noise = None
+# ---------------------------------------------------------------------------- #
+# model
+# ---------------------------------------------------------------------------- #
+_C.logs_dir = './traces/logs'
+_C.checkpoints_dir = './traces/checkpoints'
+_C.weight_path = None
+_C.continue_train = None
+_C.verbose = None
+# additional
+_C.suffix = None
+_C.DEBUG = None
+_C.epoch_start = None
+_C.num_epochs = None
+
+# ---------------------------------------------------------------------------- #
+# train
+# ---------------------------------------------------------------------------- #
+# network saving and loading
+_C.save_epoch_start = None
+_C.save_epoch_freq = None
+_C.save_iter_start = None
+_C.save_iter_freq = None
+_C.save_by_iter = None
+# network print and showing
+_C.display_freq = None
+_C.print_freq = None
+_C.plot_freq = None
+_C.val_epoch_freq = None
+_C.test_on_train = None
+# visualizer
+_C.with_html = False
+_C.with_tensorboard = True
+_C.with_visdom = False
+_C.save_log = True
+
+# visdom
+_C.visdom_server = None
+_C.display_port = None
+_C.display_env = None
+_C.display_id = None
+_C.display_ncols = None
+# html
+_C.display_winsize = None
+# tensorboard and logging
+_C.draw_model = True
+_C.display_histogram = True
+_C.play_video = False
+
+# ---------------------------------------------------------------------------- #
+# test
+# ---------------------------------------------------------------------------- #
+_C.results_dir = './traces/results'
+_C.eval = None
+
+
+
+

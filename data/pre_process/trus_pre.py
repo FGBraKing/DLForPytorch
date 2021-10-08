@@ -255,16 +255,16 @@ if __name__ == "__main__":
 
     dataset = TrusPre(dataroot, seed=1008)
 
-    dataset.process_and_save_data(save_root=save_root,
-                                  split_ratio=(3, 1, 1),
-                                  transform=None,
-                                  save_csv=True,
-                                  split_name='split.csv',
-                                  save_type='nii',
-                                  if_slim=True,
-                                  do_separate_z=False,
-                                  kit='sci')
-    # dataset.print_custom_info()
+    # dataset.process_and_save_data(save_root=save_root,
+    #                               split_ratio=(3, 1, 1),
+    #                               transform=None,
+    #                               save_csv=True,
+    #                               split_name='split.csv',
+    #                               save_type='nii',
+    #                               if_slim=True,
+    #                               do_separate_z=False,
+    #                               kit='sci')
+    dataset.print_custom_info()
     print(dataset.get_patient_num())
     # # dataset.process_for_nnunet(save_root, split_ratio)
     # h52nii(save_root)

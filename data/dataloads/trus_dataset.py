@@ -75,6 +75,7 @@ class TrusDataset(CustomDataset):
 
 def main():
     import argparse
+    import numpy as np
     parser = argparse.ArgumentParser(description='for the test of trus dataset')
     parser.add_argument('--dataroot', type=str,
                         default='/raid/lf/PROJECT/DLForPytorch/traces/datasets/prostate_daf3d_pre')
@@ -89,7 +90,7 @@ def main():
     opt = parser.parse_args(args=['--serial_batches', '--custom'])
     opt.preprocess = 'randomscale_randomcrop_ranomrotate_centercrop_rot90_mirror_' \
                      'gaussianNoise_GaussianBlur_BrightnessMultiplicative_contrast_simulate_gammatransform'
-
+    opt.random_state = np.random.RandomState(seed=opt.seed)
     dataset = TrusDataset(opt, loader=nii_loader)
     dataset.custom_debug(45)
 

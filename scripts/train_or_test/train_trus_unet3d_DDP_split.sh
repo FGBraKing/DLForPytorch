@@ -1,16 +1,21 @@
 set -ex
 echo "now is in $(pwd)"
 cd /raid/lf/PROJECT/DLForPytorch
+
+#export MASTER_ADDR=172.21.16.17
+#export MASTER_PORT=15555
+export CUDA_VISIBLE_DEVICES="1,2,3"
 python train.py  \
-                --name trus_unet3d_testDP1 \
+                --name trus_unet3d_testDDP_split_file \
                 --dataset_name trus \
                 --model_name unet3d \
                 --seed 1008 \
-                --gpu_ids 0,1,2,3 \
-                --visible_gpu 0,1,2,3 \
+                --gpu_ids 0,1 \
+                --visible_gpu 1,2,3 \
                 \
-                --world_size 4 \
-                --dist_url 'tcp://172.21.16.17:15555'  --dist_backend 'nccl' \
+                --dist_url 'file:///mnt/testshared/ddp_file'  --dist_backend 'nccl' \
+                --world_size 2 \
+                --rank 1  --local_rank 1 \
                 \
                 --dataroot /raid/lf/PROJECT/DLForPytorch/traces/datasets/prostate_daf3d_pre \
                 --phase 'train' \
@@ -30,7 +35,7 @@ python train.py  \
                 --order_seg   0  \
                 \
                 --num_threads 8  \
-                --batch_size  24  \
+                --batch_size  6  \
                 \
                 --input_nc  1  \
                 --output_nc 1  \
@@ -52,18 +57,20 @@ python train.py  \
                 \
                 --logs_dir /raid/lf/PROJECT/DLForPytorch/traces/logs \
                 --checkpoints_dir  /raid/lf/PROJECT/DLForPytorch/traces/checkpoints  \
-                --weight_path  None  \
+                --weight_path   /raid/lf/PROJECT/DLForPytorch/traces/checkpoints/trus_unet3d_testDP1/100_net_trus_unet3d_testDP1.pth   \
                 --verbose \
                 --suffix '' --DEBUG  \
-                --epoch_start 1 --num_epochs 150 \
+                --epoch_start 100 --num_epochs 150 \
                 \
                 --save_epoch_start 60 --save_epoch_freq 10 --save_iter_start 5000 --save_iter_freq 500 \
                 --display_freq 24 --print_freq 1 --plot_freq 1 \
                 --with_tensorboard  --save_log \
                 --visdom_server 'http://172.21.16.17' --visdom_port 15556 \
                 --visdom_env 'main'  --visdom_id 0  --visdom_ncols 0 --html_winsize 256 \
-                --draw_model --display_histogram  --DP
-
+                --draw_model --display_histogram  --DDP --SyncBatchNorm --continue_train
+echo "ending script"
 # --local_rank 0
 # --max_dataset_size  --DP --DDP  --up_interpolate --ignore_index  --lr_noise --continue_train --save_by_iter
-# --with_html --with_visdom --play_video  --SyncBatchNorm
+# --with_html --with_visdom --play_video
+
+# tcp://172.21.16.17:15555

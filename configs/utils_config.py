@@ -2,6 +2,19 @@ import yaml
 from types import SimpleNamespace
 
 
+def pretty_print_opt(in_opt):
+    if isinstance(in_opt, dict):
+        use_opt = in_opt
+    else:
+        use_opt = vars(in_opt)
+    str_list = ['{:>35}: {:<45}'.format(k, repr(v)) for k, v in sorted(use_opt.items())]
+    str_list.insert(0, '{:*^80s}'.format('Custom config'))
+    str_list.append('{:*^80s}'.format('End'))
+    message = '\n'.join(str_list)
+    print(message)
+    return message
+
+
 def get_config(config):
     with open(config, 'r') as stream:
         loader = yaml.FullLoader(stream)
@@ -17,6 +30,16 @@ def dict2obj(dic):
 def obj2dict(obj):
     # return obj.__dict__
     return vars(obj)
+
+
+# one_true_at_most
+def only_one_true(*args):
+    tmp = False
+    for arg in args:
+        if tmp:
+            assert not arg, 'only one of {} can be true'.format(args)
+        tmp = tmp or arg
+    return tmp
 
 
 class DictObj(object):
@@ -62,6 +85,7 @@ class ConfigDict(dict):
                 if isinstance(v, dict):
                     v = ConfigDict(v)
                 if isinstance(v, list):
+                    # list: inplace
                     self.__convert(v)
                 self[k] = v
 
@@ -78,27 +102,63 @@ class ConfigDict(dict):
     def __getattr__(self, item):
         return self.get(item)
 
-    def __setattr__(self, key, value):
-        self.__setitem__(key, value)
-
     def __setitem__(self, key, value):
         super(ConfigDict, self).__setitem__(key, value)
         self.__dict__.update({key: value})
 
-    def __delattr__(self, item):
-        self.__delitem__(item)
-
     def __delitem__(self, key):
         super(ConfigDict, self).__delitem__(key)
         del self.__dict__[key]
+
+    def __setattr__(self, key, value):
+        self.__setitem__(key, value)
+
+    def __delattr__(self, item):
+        self.__delitem__(item)
+
+    def __str__(self):
+        # # old_version
+        # message = ''
+        # message += '----------------- Options ---------------\n'
+        # for k, v in sorted(self.__dict__.items()):
+        #     message += '{:>25}: {:<30}\n'.format(str(k), str(v))
+        # message += '----------------- End -------------------'
+
+        str_list = ['{:>35}: {:<45}'.format(k, repr(v)) for k, v in sorted(self.__dict__.items())]
+        str_list.insert(0, '{:*^80s}'.format('Custom config'))
+        str_list.append('{:*^80s}'.format('End'))
+        message = '\n'.join(str_list)
+        # print(message)
+        return message
+
+    def merge_dict(self, **kwargs):
+        if kwargs:
+            for k, v in kwargs.items():
+                if isinstance(v, dict):
+                    v = ConfigDict(v)
+                if isinstance(v, list):
+                    self.__convert(v)
+                self[k] = v
+        # self.__dict__.update(kwargs)
+
+    def merge_object(self, obj):
+        if obj:
+            for k, v in vars(obj).items():
+                if isinstance(v, dict):
+                    v = ConfigDict(v)
+                if isinstance(v, list):
+                    self.__convert(v)
+                self[k] = v
+
 
 
 def main():
     # tt = [{'hand': 15, 'ddd': 18, 'hg': {'fd': 22, 'love': 66}}, 4]
     tt = {'hand': [1, 2, 3], 'ddd': 18, 'hg': {'fd': 22, 'love': 66}}
     tt1 = {'hg1': {'fd1': 22, 'love1': [66, 77, 88]}}
-    config = ConfigDict(tt, tt1)
+    config = ConfigDict(tt)
     print(type(config))
+    pretty_print_opt(config)
 
 
 if __name__ == '__main__':

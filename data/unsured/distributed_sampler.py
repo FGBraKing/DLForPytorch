@@ -49,3 +49,50 @@ class OrderedDistributedSampler(Sampler):
 
     def __len__(self):
         return self.num_samples
+
+
+class SequentialDistributedSampler(Sampler):
+    def __init__(self, dataset, batch_size, rank=None, num_replicas=None):
+        if num_replicas is None:
+            if not dist.is_available():
+                raise RuntimeError("Requires distributed package to be available")
+            num_replicas = dist.get_world_size()
+        if rank is None:
+            if not dist.is_available():
+                raise RuntimeError("Requires distributed package to be available")
+            rank = dist.get_rank()
+        self.dataset = dataset
+        self.num_replicas = num_replicas
+        self.rank = rank
+        self.batch_size = batch_size
+        self.num_samples = int(math.ceil(len(self.dataset) * 1.0 / self.num_replicas / self.batch_size)) * self.batch_size
+        self.total_size = self.num_samples * self.num_replicas
+
+    def __iter__(self):
+        indices = list(range(len(self.dataset)))
+
+        # add extra samples to make it evenly divisible
+        indices += [indices[-1]] * (self.total_size - len(indices))
+
+        # subsample
+        indices = indices[self.rank*self.num_samples:(self.rank+1)*self.num_samples]
+
+        return iter(indices)
+
+    def __len__(self):
+        return self.num_samples
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

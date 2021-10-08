@@ -24,6 +24,8 @@ class LOG(object):
         sHandler.setFormatter(formatter)
         self.logger.addHandler(sHandler)
 
+        self.logger.propagate = False
+
     # def __new__(cls, *args, **kwargs):
     #     if not hasattr(LOG, '_instance'):
     #         with cls._instance_lock:
@@ -52,6 +54,25 @@ class LOG(object):
 
     def __call__(self, msg, *args, **kwargs):
         self.logger.info(msg, *args, **kwargs)
+
+
+def get_logger(logname=None, level=logging.DEBUG, is_save=False, save_name='log.txt',
+               fmt="[%(asctime)-15s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"):
+    logger = logging.getLogger(logname)
+    logger.setLevel(level)
+
+    formatter = logging.Formatter(fmt=fmt, datefmt=datefmt)
+    if is_save:
+        fHandler = logging.FileHandler(filename=save_name, mode='a')
+        fHandler.setLevel(level)
+        fHandler.setFormatter(formatter)
+        logger.addHandler(fHandler)
+    sHandler = logging.StreamHandler()
+    sHandler.setLevel(level)
+    sHandler.setFormatter(formatter)
+    logger.addHandler(sHandler)
+    logger.propagate = False
+    return logger
 
 
 def test():

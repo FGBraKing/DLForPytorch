@@ -55,8 +55,8 @@ def save_images(webpage, visuals, image_path, aspect_ratio=1.0, width=256, isvol
 
 
 # name\isTrain\logs_dir
-# display_server\display_port\display_env\display_id\display_ncols\
-# display_winsize\no_html
+# visdom_server\visdom_port\visdom_env\visdom_id\visdom_ncols\
+# html_winsize\no_html
 # save_log
 # tensorboard
 class Visualizer:
@@ -82,32 +82,29 @@ class Visualizer:
         # cache the option
         self.opt = opt
         self.name = opt.name
-        if opt.DDP:
-            self.device = torch.device('cuda:{}'.format(opt.local_rank))  #
-        else:
-            self.device = torch.device('cuda:{}'.format(opt.gpu_ids[0])) if opt.gpu_ids else torch.device('cpu')
+        self.device = torch.device('cuda:{}'.format(opt.local_rank)) if opt.local_rank >= 0 else torch.device('cpu')
 
         self.use_html = opt.isTrain and opt.with_html
         self.use_tensorboard = opt.isTrain and opt.with_tensorboard
-        self.use_visdom = opt.isTrain and opt.with_visdom and opt.display_id > 0
+        self.use_visdom = opt.isTrain and opt.with_visdom and opt.visdom_id > 0
 
         # connect to a visdom server given <display_port> and <display_server>
         if self.use_visdom:
-            assert opt.display_id > 0, "display_id have to greater than 0"
-            self.display_server = opt.display_server
-            self.display_port = opt.display_port
-            self.display_env = opt.display_env
+            assert opt.visdom_id > 0, "visdom_id have to greater than 0"
+            self.visdom_server = opt.visdom_server
+            self.visdom_port = opt.visdom_port
+            self.visdom_env = opt.visdom_env
 
-            self.display_id = opt.display_id
-            self.ncols = opt.display_ncols
+            self.visdom_id = opt.visdom_id
+            self.ncols = opt.visdom_ncols
 
-            self.vis = visdom.Visdom(server=opt.display_server, port=opt.display_port, env=opt.display_env)
+            self.vis = visdom.Visdom(server=opt.visdom_server, port=opt.visdom_port, env=opt.visdom_env)
             if not self.vis.check_connection():
                 self.create_visdom_connections()
 
         # create an HTML object at <checkpoints_dir>/web/; images will be saved under <checkpoints_dir>/web/images/
         if self.use_html:
-            self.win_size = opt.display_winsize  # html used
+            self.win_size = opt.html_winsize  # html used
             self.web_dir = os.path.join(opt.logs_dir, opt.name, 'web')
             self.img_dir = os.path.join(self.web_dir, 'images')
             print('create web directory %s...' % self.web_dir)
@@ -134,7 +131,7 @@ class Visualizer:
         If the program could not connect to Visdom server,
         this function will start a new server at port < self.port >
          """
-        cmd = sys.executable + ' -m visdom.server -p %d &>/dev/null &' % self.display_port
+        cmd = sys.executable + ' -m visdom.server -p %d &>/dev/null &' % self.visdom_port
         print('\n\nCould not connect to Visdom server. \n Trying to start a server....')
         print('Command: %s' % cmd)
         Popen(cmd, shell=True, stdout=PIPE, stderr=PIPE)
@@ -182,10 +179,10 @@ class Visualizer:
                 if label_html_row != '':
                     label_html += '<tr>%s</tr>' % label_html_row
                 try:
-                    self.vis.images(images, nrow=ncols, win=self.display_id + 1,
+                    self.vis.images(images, nrow=ncols, win=self.visdom_id + 1,
                                     padding=2, opts=dict(title=title + ' images'))
                     label_html = '<table>%s</table>' % label_html
-                    self.vis.text(table_css + label_html, win=self.display_id + 2,
+                    self.vis.text(table_css + label_html, win=self.visdom_id + 2,
                                   opts=dict(title=title + ' labels'))
                 except VisdomExceptionBase:
                     self.create_visdom_connections()
@@ -219,7 +216,7 @@ class Visualizer:
                 for label, image in visuals.items():
                     image_numpy = tensor2im(image)
                     self.vis.image(image_numpy.transpose([2, 0, 1]), opts=dict(title=label),
-                                   win=self.display_id + idx)
+                                   win=self.visdom_id + idx)
                     idx += 1
             except VisdomExceptionBase:
                 self.create_visdom_connections()
@@ -237,11 +234,11 @@ class Visualizer:
         """tensor: shape should be L*H*W*C"""
         if self.use_visdom > 0:
             if tensor and tensor.ndim == 4:
-                self.vis.video(tensor=tensor, win=self.display_id,
-                               env=self.display_env, opts={'fps': 25})
+                self.vis.video(tensor=tensor, win=self.visdom_id,
+                               env=self.visdom_env, opts={'fps': 25})
             elif os.path.isfile(videofile):
-                self.vis.video(videofile=videofile, win=self.display_id,
-                               env=self.display_env, opts={'fps': 25})
+                self.vis.video(videofile=videofile, win=self.visdom_id,
+                               env=self.visdom_env, opts={'fps': 25})
         if self.use_tensorboard:
             if tensor.ndim == 4:        # NDHW
                 tensor = torch.unsqueeze(tensor, dim=2)
@@ -253,11 +250,11 @@ class Visualizer:
         """tensor: shape like N*2"""
         if self.use_visdom > 0:
             if tensor and tensor.ndim == 2:
-                self.vis.audio(tensor=tensor, win=self.display_id,
-                               env=self.display_env, opts={'sample_frequency': 44100})
+                self.vis.audio(tensor=tensor, win=self.visdom_id,
+                               env=self.visdom_env, opts={'sample_frequency': 44100})
             elif os.path.isfile(audiofile):
-                self.vis.audio(audiofile=audiofile, win=self.display_id,
-                               env=self.display_env, opts={'sample_frequency': 44100})
+                self.vis.audio(audiofile=audiofile, win=self.visdom_id,
+                               env=self.visdom_env, opts={'sample_frequency': 44100})
         if self.use_tensorboard:
             self.writer.add_audio(tag='audio'+self.name,
                                   snd_tensor=tensor,
@@ -298,7 +295,7 @@ class Visualizer:
                         'legend': self.plot_data['legend'],
                         'xlabel': 'epoch',
                         'ylabel': 'loss'},
-                    win=self.display_id)
+                    win=self.visdom_id)
             except VisdomExceptionBase:
                 self.create_visdom_connections()
             except AttributeError:
@@ -324,6 +321,20 @@ class Visualizer:
         for k, v in losses.items():
             message += '%s: %.3f ' % (k, v)
         self.message_logger(message)
+
+    def print_current_metrics(self, metrics, epoch, iters):
+        message = '(epoch: %d, iters: %d) ' % (epoch, iters)
+        for k, v in metrics.items():
+            try:
+                message += '%s: %.4f ' % (k, v)
+            except TypeError as e:
+                # print('some wrong happened %s' % e)
+                message += '%s: %r ' % (k, list(v))
+        self.message_logger(message)
+
+    def write_log(self, text):
+        assert isinstance(text, str)
+        self.message_logger(text)
 
     def add_hparams(self, hparam_dict=None, metric_dict=None, name=None, global_step=None):
         if self.use_tensorboard:
@@ -361,7 +372,7 @@ class Visualizer:
         if self.use_tensorboard:
             self.writer.close()
         if self.use_visdom:
-            self.vis.save(self.opt.display_env)
+            self.vis.save(self.opt.visdom_env)
             self.vis.close()
 
 

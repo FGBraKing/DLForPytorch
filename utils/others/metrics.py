@@ -333,12 +333,12 @@ class MutiClassMetrics:
         return result_list
 
 
-# [*]
+# [*], tensor
 class SoftMetrics:
     ''' basic metrics, only apply to sample set. used for training'''
     def __init__(self, smooth=0., eps=1e-9):
         self.smooth = smooth
-        self.eps =eps
+        self.eps = eps
 
     @staticmethod
     def get_basic_metrics(result, target):
@@ -355,9 +355,83 @@ class SoftMetrics:
         # TP = torch.matmul(f_result, f_target)
         TP = torch.dot(f_result, f_target)
         TN = torch.dot(1-f_result, 1-f_target)
-        FP = torch.dot(result, 1-target)
-        FN = torch.dot(1-result, target)
+        FP = torch.dot(f_result, 1-f_target)
+        FN = torch.dot(1-f_result, f_target)
         return TP, FN, TN, FP
+
+    def get_hd(self, predict, target, **kwargs):
+        if 'voxelspacing' in kwargs.keys():
+            voxelspacing = kwargs['voxelspacing']
+        else:
+            voxelspacing = None
+        if 'connectivity' in kwargs.keys():
+            connectivity = kwargs['connectivity']
+        else:
+            connectivity = 1
+        device = predict.device
+        result = predict.detach().cpu().numpy()
+        target = target.detach().cpu().numpy()
+        result = result > 0.5
+        target = target > 0.5
+        return torch.tensor(metric.hd(result, target, voxelspacing, connectivity), requires_grad=False).to(device)
+
+    def get_hd95(self, predict, target, **kwargs):
+        if 'voxelspacing' in kwargs.keys():
+            voxelspacing = kwargs['voxelspacing']
+        else:
+            voxelspacing = None
+        if 'connectivity' in kwargs.keys():
+            connectivity = kwargs['connectivity']
+        else:
+            connectivity = 1
+        device = predict.device
+        result = predict.detach().cpu().numpy()
+        target = target.detach().cpu().numpy()
+        result = result > 0.5
+        target = target > 0.5
+        return torch.tensor(metric.hd95(result, target, voxelspacing, connectivity), requires_grad=False).to(device)
+
+    def get_assd(self, predict, target, **kwargs):
+        if 'voxelspacing' in kwargs.keys():
+            voxelspacing = kwargs['voxelspacing']
+        else:
+            voxelspacing = None
+        if 'connectivity' in kwargs.keys():
+            connectivity = kwargs['connectivity']
+        else:
+            connectivity = 1
+
+        device = predict.device
+        result = predict.detach().cpu().numpy()
+        target = target.detach().cpu().numpy()
+        result = result > 0.5
+        target = target > 0.5
+        return torch.tensor(metric.assd(result, target, voxelspacing, connectivity), requires_grad=False).to(device)
+
+    def get_asd(self, predict, target, **kwargs):
+        if 'voxelspacing' in kwargs.keys():
+            voxelspacing = kwargs['voxelspacing']
+        else:
+            voxelspacing = None
+        if 'connectivity' in kwargs.keys():
+            connectivity = kwargs['connectivity']
+        else:
+            connectivity = 1
+
+        device = predict.device
+        result = predict.detach().cpu().numpy()
+        target = target.detach().cpu().numpy()
+        result = result > 0.5
+        target = target > 0.5
+        return torch.tensor(metric.asd(result, target, voxelspacing, connectivity), requires_grad=False).to(device)
+
+    def get_ravd(self, result, target, **kwargs):
+        device = result.device
+        result = result.detach().cpu().numpy()
+        target = target.detach().cpu().numpy()
+        result = result > 0.5
+        target = target > 0.5
+        return torch.tensor(metric.ravd(result, target), requires_grad=False).to(device)
 
     def get_dice(self, result, target, **kwargs):
         TP, FN, TN, FP = self.get_basic_metrics(result, target)
@@ -370,7 +444,15 @@ class SoftMetrics:
         denominator = torch.sum(f_target) + torch.sum(f_result)
         return (2 * inter + self.smooth) / (denominator + self.smooth + self.eps)
 
+    def get_DC(self, result, target, **kwargs):
+        TP, FN, TN, FP = self.get_basic_metrics(result, target)
+        return (2 * TP + self.smooth) / (2 * TP + FP + FN + self.smooth + self.eps)
+
     def get_IOU(self, result, target, **kwargs):
+        TP, FN, TN, FP = self.get_basic_metrics(result, target)
+        return (TP + self.smooth) / (TP + FP + FN + self.smooth + self.eps)
+
+    def get_jaccard(self, result, target, **kwargs):
         TP, FN, TN, FP = self.get_basic_metrics(result, target)
         return (TP + self.smooth) / (TP + FP + FN + self.smooth + self.eps)
 

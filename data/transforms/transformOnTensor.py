@@ -1,9 +1,8 @@
-from torchvision.transforms import *
+import os
 import torch
 import numpy as np
 from PIL import Image
-import os
-from torch.autograd import Variable
+from torchvision.transforms import *
 
 
 def tensor2im(input_image, imtype=np.uint8):
@@ -36,7 +35,7 @@ def vgg_preprocess(batch):
     mean[:, 0, :, :] = 103.939
     mean[:, 1, :, :] = 116.779
     mean[:, 2, :, :] = 123.680
-    batch = batch.sub(Variable(mean)) # subtract mean
+    batch = batch.sub(torch.Tensor(mean))  # subtract mean
     return batch
 
 

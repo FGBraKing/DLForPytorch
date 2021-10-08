@@ -1,13 +1,13 @@
 set -ex
 echo "now is in $(pwd)"
-#export MASTER_ADDR=localhost
-#export MASTER_PORT=34567
-#export CUDA_VISIBLE_DEVICES="0,1,2,3"
-export NCCL_DEBUG=INFO
+
+export NCCL_SOCKET_IFNAME=enp2s0f0
+export NCCL_DEBUG=DEBUG
 cd /raid/lf/PROJECT/DLForPytorch
-python -m torch.distributed.launch --nproc_per_node 3 \
+python -m torch.distributed.launch \
+                --nnodes 2 --node_rank 0 --nproc_per_node 3 --master_addr 172.21.16.17  --master_port 15000 \
                 train.py  \
-                          --name trus_unet3d_testDDP_TEST \
+                          --name trus_unet3d_testDDP_muti_node \
                           --dataset_name trus \
                           --model_name unet3d \
                           --seed 1008 \
@@ -17,7 +17,7 @@ python -m torch.distributed.launch --nproc_per_node 3 \
                           --dist_url 'env://'  --dist_backend 'nccl' \
                           --world_size -1  --rank -1 \
                           \
-                          --dataroot /raid/lf/PROJECT/DLForPytorch/traces/datasets/prostate_daf3d_pre \
+                          --dataroot ./traces/datasets/prostate_daf3d_pre \
                           --phase 'train' \
                           --serial_batches --custom \
                           --preprocess 'randomscale_randomcrop_ranomrotate_centercrop_rot90_mirror_
@@ -35,7 +35,7 @@ python -m torch.distributed.launch --nproc_per_node 3 \
                           --order_seg   0  \
                           \
                           --num_threads 8  \
-                          --batch_size  6  \
+                          --batch_size  2  \
                           \
                           --input_nc  1  \
                           --output_nc 1  \
@@ -67,8 +67,110 @@ python -m torch.distributed.launch --nproc_per_node 3 \
                           --with_tensorboard  --save_log \
                           --visdom_server 'http://172.21.16.17' --visdom_port 15556 \
                           --visdom_env 'main'  --visdom_id 0  --visdom_ncols 0 --html_winsize 256 \
-                          --draw_model  --DDP  --SyncBatchNorm --continue_train
+                          --draw_model  --DDP  --SyncBatchNorm  --continue_train
 
 # --local_rank 0
 # --max_dataset_size  --DP --DDP  --up_interpolate --ignore_index  --lr_noise --continue_train -save_by_iter
-# --with_html --with_visdom --play_video  --display_histogram tcp://172.21.16.17:15567
+# --with_html --with_visdom --play_video  --display_histogram
+
+# export MASTER_ADDR=172.21.16.17
+# export MASTER_PORT=15000
+# export CUDA_VISIBLE_DEVICES="0,1,2,3"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

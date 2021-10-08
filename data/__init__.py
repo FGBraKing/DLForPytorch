@@ -5,9 +5,13 @@
 dataloads: dataload.
 transforms: some function to transform
  """
+import logging
 import importlib
 import torch.utils.data
+import torch.distributed
 from data.dataloads.base_dataset import BaseDataset
+
+ddp_logger = logging.getLogger('ddp_logger')
 
 
 def find_dataset_using_name(dataset_name):
@@ -59,16 +63,19 @@ class CustomDatasetDataLoader:
         self.opt = opt
         dataset_class = find_dataset_using_name(opt.dataset_name)
         self.dataset = dataset_class(opt)
-        print("dataset [%s] was created" % type(self.dataset).__name__)
+        # print("dataset [%s] was created" % type(self.dataset).__name__)
+        ddp_logger.warning("dataset [%s] was created" % type(self.dataset).__name__)
         sampler = torch.utils.data.distributed.DistributedSampler(self.dataset,
-                                                                  num_replicas=opt.world_size,
-                                                                  rank=opt.local_rank,
+                                                                  num_replicas=torch.distributed.get_world_size(),
+                                                                  rank=torch.distributed.get_rank(),
                                                                   shuffle=not opt.serial_batches,
                                                                   seed=0,
                                                                   drop_last=False) if opt.DDP else None
+
+        # batch_sample = torch.utils.data.BatchSampler(sampler=sampler, batch_size=opt.batch_size, drop_last=False)
+        # collate_fn = None
+
         self.sample = sampler
-        # if opt.DDP and not opt.serial_batches:
-        #     sampler.set_epoch(opt.seed+opt.local_rank)   # 大概是错的，实际想要的应该是每个epoch不同，而不是不同进程不同
         self.dataloader = torch.utils.data.DataLoader(
             self.dataset,
             batch_size=opt.batch_size,
@@ -100,6 +107,6 @@ class CustomDatasetDataLoader:
         """Return a batch of data"""
         for i, data in enumerate(self.dataloader):
             if i * self.opt.batch_size >= self.opt.max_dataset_size:
-                print('max_dataset_size:{}'.format(self.opt.max_dataset_size))
+                ddp_logger.warning('max_dataset_size:{}'.format(self.opt.max_dataset_size))
                 break
             yield data

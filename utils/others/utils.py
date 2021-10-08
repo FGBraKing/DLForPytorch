@@ -9,7 +9,6 @@ import csv
 import time
 import yaml
 
-from yaml import FullLoader
 from collections import namedtuple
 from types import SimpleNamespace
 from functools import singledispatch
@@ -148,7 +147,7 @@ def prepare_sub_folder(output_directory):
 
 def get_config(config):
     with open(config, 'r') as stream:
-        loader = FullLoader(stream)
+        loader = yaml.FullLoader(stream)
         out = loader.get_single_data()
         out1 = yaml.load(stream)
         return out

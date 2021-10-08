@@ -294,7 +294,11 @@ def get_names_dict(model):
 class FeatureExtractor:
     """ Class for extracting activations and
     registering gradients from targetted intermediate layers """
-    def __init__(self, model, target_layers):
+    def __init__(self, model, target_layers: list):
+        '''
+        :param model:
+        :param target_layers: list, module_name
+        '''
         self.model = model
         self.target_layers = target_layers
         self.gradients = []
@@ -316,6 +320,8 @@ class FeatureExtractor:
         return outputs, x
 
 
+# register_forward_hook
+# register_forward_pre_hook
 # 提取指定层的名字和输入输出特征图
 class FeatureMapExtractor:
     def __init__(self):
@@ -372,6 +378,7 @@ class FeatureMapExtractor:
         return self.module_name_out, self.features_out
 
 
+# register_backward_hook
 # 提取指定层输出特征图的梯度,
 # 在测试中，这个grad_input的结果有些奇怪,毕竟grad_input是该层用于计算梯度的输入
 # grad_output的结果是正确的
@@ -408,6 +415,7 @@ class FeatureGradientExtractor:
         return self.module_name, self.grad_input, self.grad_output
 
 
+# register_hook
 # 获取指定层的权重的梯度
 class WeightGradientExtractor:
     def __init__(self):
@@ -417,6 +425,11 @@ class WeightGradientExtractor:
         self.grad.append(gard)
 
     def hook_model_weight_grad(self, model, layer):
+        '''
+        :param model: module
+        :param layer: module_name
+        :return:
+        '''
         assert isinstance(model, torch.nn.Module)
         for name, module in model.named_modules():
             if name == layer:

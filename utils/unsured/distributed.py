@@ -21,8 +21,16 @@ def distribute_bn(model, world_size, reduce=False):
         if ('running_mean' in bn_name) or ('running_var' in bn_name):
             if reduce:
                 # average bn stats across whole group
-                torch.distributed.all_reduce(bn_buf, op=dist.ReduceOp.SUM)
+                dist.all_reduce(bn_buf, op=dist.ReduceOp.SUM)
                 bn_buf /= float(world_size)
             else:
                 # broadcast bn stats from rank 0 to whole group
-                torch.distributed.broadcast(bn_buf, 0)
+                dist.broadcast(bn_buf, 0)
+
+
+def distribute_concat(tensor, num_total_examples):
+    output_tensors = [tensor.clone() for _ in range(dist.get_world_size())]
+    dist.all_gather(output_tensors, tensor)
+    concat = torch.cat(output_tensors, dim=0)
+    return concat[:num_total_examples]
+

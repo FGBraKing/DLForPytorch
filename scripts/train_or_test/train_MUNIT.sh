@@ -13,9 +13,9 @@ python MUNIT_train.py  --dataroot /home/users/lf/CODE/PycharmProjects/DLForPytor
                 --load_size 256 --crop_size 256 \
                 --max_dataset_size 999999999 \
                 --preprocess None \
-                --display_winsize 256 \
+                --html_winsize 256 \
                 --display_freq 400 --display_ncols 8 --display_id 1  \
-                --display_server "http://172.21.141.4"  --display_env main --display_port 8097 \
+                --visdom_server "http://172.21.141.4"  --display_env main --display_port 8097 \
                 --update_html_freq 1000 --print_freq 100 \
                 --save_latest_freq 5000 --save_epoch_freq 10 \
                 --n_epochs 100 --n_epochs_decay 200 \

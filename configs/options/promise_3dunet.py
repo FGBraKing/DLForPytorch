@@ -1,6 +1,5 @@
-import argparse
 import os
-import torch
+import argparse
 
 from utils.others.utils import mkdirs, convert_str_to_list
 
@@ -175,21 +174,21 @@ class TrainOptions(BaseOptions):
         # visualizer parameters
         parser.add_argument('--no_html', action='store_true',
                             help='do not save intermediate training results to [opt.checkpoints_dir]/[opt.name]/web/')
-        parser.add_argument('--display_id', type=int, default=0, help='window id of the web display')
+        parser.add_argument('--visdom_id', type=int, default=0, help='window id of the web display')
         parser.add_argument('--tensorboard', action='store_true', help='whether to use tensorboard')
         parser.add_argument('--save_log', action='store_true', help='whether to use logging file')
 
         # visdom and HTML visualization parameters
-        parser.add_argument('--display_ncols', type=int, default=0,
+        parser.add_argument('--visdom_ncols', type=int, default=0,
                             help='if positive, display all images in a single visdom web panel '
                                  'with certain number of images per row.')
-        parser.add_argument('--display_env', type=str, default='main',
+        parser.add_argument('--visdom_env', type=str, default='main',
                             help='visdom display environment name (default is "main")')
-        parser.add_argument('--display_server', type=str, default="http://172.21.141.4",
+        parser.add_argument('--visdom_server', type=str, default="http://172.21.141.4",
                             help='visdom server of the web display')
-        parser.add_argument('--display_port', type=int, default=30303,
+        parser.add_argument('--visdom_port', type=int, default=30303,
                             help='visdom port of the web display')
-        parser.add_argument('--display_winsize', type=int, default=256,
+        parser.add_argument('--html_winsize', type=int, default=256,
                             help='display windows size for both visdom and html')
 
         # network print and showing parameters

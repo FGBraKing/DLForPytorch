@@ -45,7 +45,9 @@ def load_remove_save(input_file: str, output_file: str, for_which_classes: list,
     return largest_removed, kept_size
 
 
-def remove_all_but_the_largest_connected_component(image: np.ndarray, for_which_classes: list, volume_per_voxel: float,
+def remove_all_but_the_largest_connected_component(image: np.ndarray,
+                                                   for_which_classes: list,
+                                                   volume_per_voxel: float,
                                                    minimum_valid_object_size: dict = None):
     """
     removes all but the largest connected component, individually for each class
@@ -106,7 +108,7 @@ def remove_all_but_the_largest_connected_component(image: np.ndarray, for_which_
 
 
 def apply_postprocessing_to_folder(input_folder: str, output_folder: str, for_which_classes: list,
-                                   min_valid_object_size:dict=None, num_processes=8):
+                                   min_valid_object_size: dict=None, num_processes=8):
     """
     applies removing of all but the largest connected component to all niftis in a folder
     :param min_valid_object_size:

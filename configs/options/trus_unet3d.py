@@ -1,7 +1,7 @@
 import os
-import math
 import argparse
-
+import numpy as np
+from configs.utils_config import only_one_true
 from utils.others.utils import mkdirs, convert_str_to_list
 
 
@@ -21,7 +21,9 @@ class ProjectOptions:
         parser.add_argument('--dataset_name', type=str, default='promise12', help='chooses how datasets are loaded')
         parser.add_argument('--model_name', type=str, default='unet3d',  help='chooses which model to use.')
         parser.add_argument('--seed', type=int, default=1008, help='random seed')
-        parser.add_argument('--gpu_ids', type=str, default='1', help='gpu ids: e.g. 0  0,1,2, 0,2. use -1 for CPU')
+        parser.add_argument('--gpu_ids', type=str, default='1',
+                            help='available gpu ids: e.g. 0  0,1,2, 0,2. use -1 for CPU;'
+                                 'when using DDP, it also means nproc on this node')
         parser.add_argument('--visible_gpu', type=str, default='0,1,2,3', help='visible gpu ids: e.g. 0  0,1,2, 0,2.')
         return parser
 
@@ -30,9 +32,12 @@ class ProjectOptions:
         # distribution parameters
         parser.add_argument('--DP', action='store_true', help='use torch.nn.DataParallel')
         parser.add_argument('--DDP', action='store_true', help='torch.nn.parallel.DistributedDataParallel')
-        parser.add_argument('--world_size', type=int, default=3, help='number of distributed processes')
-        parser.add_argument('--local_rank', type=int, default=0, help='rank of distributed processes')
-        parser.add_argument('--dist_url', type=str, default='tcp://172.21.141.4:30303',
+        parser.add_argument('--SyncBatchNorm', action='store_true', help='DDP with SyncBatchNorm')
+        parser.add_argument('--world_size', type=int, default=-1, help='number of distributed processes')
+        parser.add_argument('--rank', type=int, default=-1, help='The first rank of the process on this node')
+        parser.add_argument('--local_rank', type=int, default=-1,
+                            help='local_rank of distributed processes. local_rank = gpu_ids[ind], -1 means cpu')
+        parser.add_argument('--dist_url', type=str, default='env://',
                             help='url used to set up distributed training')
         parser.add_argument('--dist_backend', default='nccl', type=str, help='distributed backend')
         return parser
@@ -58,10 +63,10 @@ class ProjectOptions:
         parser.add_argument('--scale', type=str, default='1.,1.,1.', help='the scale of target size')
         parser.add_argument('--bright_mu', type=float, default=0.0,  help='brightness')
         parser.add_argument('--bright_sigma', type=float, default=0.5,  help='brightness')
-        parser.add_argument('--elastic_alpha', type=str, default=(0., 1000.),  help='ElasticDeformTransform ')
-        parser.add_argument('--elastic_sigma', type=str, default=(10., 13.),  help='ElasticDeformTransform ')
-        parser.add_argument('--shift_mu', type=str, default=(0., 1000.),  help='RandomShiftTransform ')
-        parser.add_argument('--shift_sigma', type=str, default=(10., 13.),  help='RandomShiftTransform ')
+        parser.add_argument('--elastic_alpha', type=str, default='0., 1000.',  help='ElasticDeformTransform ')
+        parser.add_argument('--elastic_sigma', type=str, default='10.,13.',  help='ElasticDeformTransform ')
+        parser.add_argument('--shift_mu', type=str, default='0., 1000.',  help='RandomShiftTransform ')
+        parser.add_argument('--shift_sigma', type=str, default='10., 13.',  help='RandomShiftTransform ')
         parser.add_argument('--order_data', type=int, default=3,  help='order_data ')
         parser.add_argument('--order_seg', type=int, default=0,  help='order_seg ')
 
@@ -88,7 +93,7 @@ class ProjectOptions:
         # initialization parameters
         parser.add_argument('--init_type', type=str, default='kaiming',
                             help='network initialization [normal | xavier | kaiming | orthogonal]')
-        parser.add_argument('--init_gain', type=float, default=math.sqrt(2),
+        parser.add_argument('--init_gain', type=float, default=np.sqrt(2),
                             help='scaling factor for normal, xavier and orthogonal.')
         parser.add_argument('--init_std', type=float, default=0.02,
                             help='scaling factor for normal, xavier and orthogonal.')
@@ -99,7 +104,7 @@ class ProjectOptions:
         # optimizer parameters
         parser.add_argument('--optimizer_name', type=str, default='adam', help='name of optimizer to create')
         parser.add_argument('--lr', type=float, default=1e-4, help='initial learning rate for adam')
-        parser.add_argument('--weight_decay', type=float, default=0., help='weight decay to apply in optimizer')
+        parser.add_argument('--weight_decay', type=float, default=0., help='weight decay (L2 penalty) (default: 0)')
         parser.add_argument('--momentum', type=float, default=0.9,
                             help='momentum for momentum based optimizers (others may use betas via kwargs)')
         parser.add_argument('--beta1', type=float, default=0.9, help='momentum term of adam')
@@ -159,6 +164,10 @@ class ProjectOptions:
                             help='frequency of print training loss on console')
         parser.add_argument('--plot_freq', type=int, default=1,
                             help='frequency of plot training metrics on console')
+        parser.add_argument('--val_epoch_freq', type=int, default=10,
+                            help='frequency of test, when training')
+        parser.add_argument('--test_on_train', action='store_true',
+                            help='whether do_test, on training')
 
         # visualizer parameters
         parser.add_argument('--with_html', action='store_true',
@@ -168,18 +177,18 @@ class ProjectOptions:
         parser.add_argument('--save_log', action='store_true', help='whether to save logging file')
 
         # visdom  parameters
-        parser.add_argument('--display_server', type=str, default="http://172.21.141.4",
+        parser.add_argument('--visdom_server', type=str, default="http://172.21.141.4",
                             help='visdom server of the web display')
-        parser.add_argument('--display_port', type=int, default=30303,
+        parser.add_argument('--visdom_port', type=int, default=30303,
                             help='visdom port of the web display')
-        parser.add_argument('--display_env', type=str, default='main',
+        parser.add_argument('--visdom_env', type=str, default='main',
                             help='visdom display environment name (default is "main")')
-        parser.add_argument('--display_id', type=int, default=0, help='window id of the web display')
-        parser.add_argument('--display_ncols', type=int, default=0,
+        parser.add_argument('--visdom_id', type=int, default=0, help='window id of the web display')
+        parser.add_argument('--visdom_ncols', type=int, default=0,
                             help='if positive, display all images in a single visdom web panel '
                                  'with certain number of images per row.')
         # html parameters
-        parser.add_argument('--display_winsize', type=int, default=256, help='display windows size for html')
+        parser.add_argument('--html_winsize', type=int, default=256, help='display windows size for html')
 
         # tensorboard and logging parameters
         parser.add_argument('--draw_model', action='store_true', help='whether to draw model on tensorboard')
@@ -198,9 +207,11 @@ class ProjectOptions:
         parser.set_defaults(model='test')
         # To avoid cropping, the load_size should be the same as crop_size
         parser.set_defaults(load_size=parser.get_default('crop_size'))
+        # rest from the training program
+        parser.add_argument('training_script_args', nargs=argparse.REMAINDER)
         return parser
 
-    def initialize(self, parser, isTrain):
+    def initialize(self, parser, is_train):
         """Define the common options that are used in both training and test."""
         parser = self.base_initialize(parser)
         parser = self.distribution_initialize(parser)
@@ -209,26 +220,28 @@ class ProjectOptions:
         parser = self.optimizer_initialize(parser)
         parser = self.model_initialize(parser)
 
-        if isTrain:
+        if is_train:
             parser = self.train_initialize(parser)
         else:
             parser = self.test_initialize(parser)
-
+        self.isTrain = is_train
         self.initialized = True
         return parser
 
-    def gather_options(self, isTrain):
+    def gather_options(self, is_train, args=None):
         if not self.initialized:  # check if it has been initialized
-            parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-            parser = self.initialize(parser, isTrain)
+            parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+                                             description='PyTorch tr-us options')
+            parser = self.initialize(parser, is_train)
         else:
             parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-        # get the basic options
-        opt, _ = parser.parse_known_args()
-        # save and return the parser
+        # # get the basic options
+        # opt, _ = parser.parse_known_args()
+        # modify options
+        # # save and return the parser
         self.parser = parser
-        return parser.parse_args()  # args=['--verbose']  args=['--verbose', '--custom', '--verbose']
+        return parser.parse_args(args=args, namespace=None)
 
     def print_options(self, opt):
         """Print and save options
@@ -250,27 +263,35 @@ class ProjectOptions:
         # save to the disk
         expr_dir = os.path.join(opt.checkpoints_dir, opt.name)  # opt.dataset_name + opt.model_name + opt.name
         mkdirs(expr_dir)
-        file_name = os.path.join(expr_dir, '{}_opt.txt'.format(opt.phase))
-        with open(file_name, 'wt') as opt_file:
-            opt_file.write(message)
-            opt_file.write('\n')
+        if opt.save_log:
+            file_name = os.path.join(expr_dir, '{}_opt.txt'.format(opt.phase))
+            with open(file_name, 'wt') as opt_file:
+                opt_file.write(message)
+                opt_file.write('\n')
 
-    def parse(self, isTrain):
-        """Parse our options, create checkpoints directory suffix, and set up gpu device."""
-        opt = self.gather_options(isTrain)
-        opt.isTrain = isTrain
-        assert not(opt.DP and opt.DDP)
-
+    @staticmethod
+    def repair_options(opt, is_train):
         # process opt.suffix
         if opt.suffix:
             suffix = ('_' + opt.suffix.format(**vars(opt))) if opt.suffix != '' else ''
             opt.name = opt.name + suffix
 
-        if (not opt.DDP) or (opt.DDP and opt.local_rank == 0):
-            self.print_options(opt)
+        if (opt.dist_url is None) or (opt.dist_url == "env://") or (opt.world_size == -1) or (opt.rank == -1):
+            # 环境变量初始化
+            opt.dist_url = 'env://'
+
+        if opt.DDP:
+            assert opt.weight_path is not None
+            opt.continue_train = True if is_train else False
+
+        return opt
+
+    @staticmethod
+    def change_options(opt, is_train):
+        opt.isTrain = is_train
+        opt.random_state = np.random.RandomState(seed=opt.seed)
 
         opt.gpu_ids = convert_str_to_list(opt.gpu_ids, split=',', aim_type=int, condition=lambda x: x >= 0)
-
         opt.crop_size = convert_str_to_list(opt.crop_size, split=',', aim_type=int, condition=lambda x: x > 0)
         opt.target_size = convert_str_to_list(opt.target_size, split=',', aim_type=int, condition=lambda x: x > 0)
         opt.scale = convert_str_to_list(opt.scale, split=',', aim_type=float, condition=lambda x: x > 0)
@@ -281,8 +302,34 @@ class ProjectOptions:
         if opt.ignore_index is not None:
             opt.ignore_index = convert_str_to_list(opt.ignore_index, split=',', aim_type=int, condition=lambda x: x >= 0)
 
+        return opt
+
+    def parse(self, is_train=True, args=None):
+        """Parse our options, create checkpoints directory suffix, and set up gpu device."""
+        opt = self.gather_options(is_train, args=args)
+        # assert not(opt.DP and opt.DDP)
+
+        if not only_one_true(opt.DP, opt.DDP):
+            print('you have not use parallel')
+
+        opt = self.repair_options(opt, is_train)    # repair some value of args
+
+        # note: 当不用torch.distributed.launch启动时，local_rank需手动选择是否为0，创建expr_dir文件夹
+        if ((not opt.DDP) or (opt.DDP and opt.rank == 0) or (opt.DDP and opt.rank == -1 and opt.local_rank == 0))\
+                and opt.verbose:
+            self.print_options(opt)
+
+        opt = self.change_options(opt, is_train)    # change some type of args
+
         self.opt = opt
         return self.opt
+
+    def __str__(self):
+        str_list = ['{:>35}: {:<45}'.format(*item) for item in sorted(vars(self.opt).items())]
+        str_list.insert(0, '{:*^80s}'.format('Custom config'))
+        str_list.append('{:*^80s}'.format('End'))
+        message = '\n'.join(str_list)
+        return message
 
 
 if __name__ == '__main__':
@@ -297,7 +344,7 @@ if __name__ == '__main__':
     # parser.add_argument('--checkpoints_dir', type=str, default='./checkpoints',
     #                     help='models are saved here')
     # opt = parser.parse_args(args=[])
-    opt = ProjectOptions().parse()
+    option = ProjectOptions().parse(True, args=None)
     print('option get ready')
 #  os.environ['CUDA_VISIBLE_DEVICES'] = opt.gpu_ids[0]
 #  torch.cuda.set_device(opt.gpu_ids[0])

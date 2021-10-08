@@ -15,7 +15,7 @@ python test.py --dataroot /home/users/lf/CODE/PycharmProjects/DLForPytorch/trace
                --batch_size 1  \
                --load_size 256 --crop_size 256 \
                --preprocess None \
-               --display_winsize 256 \
+               --html_winsize 256 \
                --phase test \
                --results_dir /home/users/lf/CODE/PycharmProjects/DLForPytorch/traces/results  \
                --aspect_ratio 1.0  \

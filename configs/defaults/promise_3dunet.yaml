@@ -1,40 +1,38 @@
-# basic parameters
-name : 'default'
-dataroot : "t"
-logs_dir : "t"
-results_dir : "t"
-checkpoints_dir : './checkpoints'
-seed : "t"
+---
+#basic parameters
+ name: 'default'
+ dataroot : "t"
+ logs_dir: "t"
+ results_dir: "t"
+ checkpoints_dir: './checkpoints'
+ seed: "t"
 
-# running parameters
-gpu_ids : "t"
-isTrain : "t"
-epoch_start : "t"
-epoch_end : "t"
-epoch_decay : "t"
-lr : "t"
-lr_policy : "t"
-save_epoch_start : "t"
-save_epoch_freq : "t"
-save_iter_start : "t"
-save_iter_freq : "t"
-save_by_iter : "t"
+ # running parameters
+ gpu_ids: "t"
+ isTrain: "t"
+ epoch_start: "t"
+ epoch_end: "t"
+ epoch_decay: "t"
+ lr: "t"
+ lr_policy: "t"
+ save_epoch_start: "t"
+ save_epoch_freq: "t"
+ save_iter_start: "t"
+ save_iter_freq: "t"
+ save_by_iter: "t"
 
-# model parameters
-model_name : "3d_unet"
-
-
-# dataset parameters
-dataset_name : "promise12"
-batchsize : 1
-num_threads : 8
-load_size : 256
-crop_size : 256
-preprocess : "t"
-
-
-# optional parameters(some parameters used to visualize)
-suffix : ''
+ # model parameters
+ model_name: "3d_unet"
+ # dataset parameters
+ dataset_name: "promise12"
+ batchsize: 1
+ num_threads: 8
+ load_size: 256
+ crop_size: 256
+ preprocess: "t"
+ # optional parameters(some parameters used to visualize)
+ suffix: ''
+...
 
 
 

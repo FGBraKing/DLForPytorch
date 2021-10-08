@@ -1,8 +1,15 @@
 import os
+import logging
 import torch
+import torch.distributed
+import torch.nn as nn
 from collections import OrderedDict, defaultdict
 from abc import ABC, abstractmethod
+from utils.others.distributed_utils import reduce_mean
 # from models.auxiliary_funs import get_scheduler
+
+
+ddp_logger = logging.getLogger('ddp_logger')
 
 
 class BaseModel(ABC):
@@ -31,12 +38,21 @@ class BaseModel(ABC):
         self.opt = opt
         self.gpu_ids = opt.gpu_ids
         self.isTrain = opt.isTrain
-        if opt.DDP:
-            self.device = torch.device('cuda:{}'.format(opt.local_rank))  #
-        else:
-            self.device = torch.device('cuda:{}'.format(self.gpu_ids[0])) if self.gpu_ids else torch.device('cpu')
+        # if opt.DDP:
+        #     self.device = torch.device('cuda:{}'.format(opt.local_rank))  #
+        # else:
+        #     self.device = torch.device('cuda:{}'.format(self.gpu_ids[0])) if self.gpu_ids else torch.device('cpu')
+        self.device = torch.device('cuda:{}'.format(opt.local_rank)) if opt.local_rank >= 0 else torch.device('cpu')
+        ddp_logger.warning(repr(self.device))
         self.save_dir = os.path.join(opt.checkpoints_dir, opt.name)  # save all the checkpoints to save_dir
         self.logs_dir = os.path.join(opt.logs_dir, opt.name)
+        if not os.path.exists(self.save_dir):
+            ddp_logger.warning('making a dir of {}'.format(self.save_dir))
+            os.mkdir(self.save_dir)
+        if not os.path.exists(self.logs_dir):
+            ddp_logger.warning('making a dir of {}'.format(self.logs_dir))
+            os.mkdir(self.logs_dir)
+
         # self.data_paths = []
         self.volume_path = []
         self.label_path = []
@@ -141,7 +157,8 @@ class BaseModel(ABC):
             #     scheduler.step(epoch)
 
         lr = self.optimizers[0].param_groups[0]['lr']
-        print('learning rate %.7f -> %.7f' % (old_lr, lr))
+        # print('learning rate %.7f -> %.7f' % (old_lr, lr))
+        ddp_logger.info('learning rate %.7f -> %.7f' % (old_lr, lr))
 
     def get_current_lrs(self):
         lrs = []
@@ -172,7 +189,28 @@ class BaseModel(ABC):
             if isinstance(name, str):
                 errors_ret[name] = float(getattr(self, 'loss_' + name))
                 # float(...) works for both scalar tensor and float number
+
+        if self.opt.DDP:
+            torch.distributed.barrier()
+            for k, v in errors_ret.items():
+
+                if isinstance(v, torch.Tensor):
+                    errors_ret[k] = reduce_mean(v, torch.distributed.get_world_size())
+
         return errors_ret
+
+    def get_models(self):
+        nets = []
+        for name in self.model_names:
+            if isinstance(name, str):
+                net = getattr(self, 'net_' + name)
+                if isinstance(net, nn.Module):
+                    if isinstance(net, torch.nn.parallel.DataParallel) \
+                            or isinstance(net, torch.nn.parallel.DistributedDataParallel):
+                        nets.append(net.module)
+                    else:
+                        nets.append(net)
+        return nets
 
     def save_networks(self, epoch):
         """Save all the networks to the disk.
@@ -180,7 +218,7 @@ class BaseModel(ABC):
         Parameters:
             epoch (int) -- current epoch; used in the file name '%s_net_%s.pth' % (epoch, name)
         """
-        if self.opt.DDP and self.opt.local_rank != 0:
+        if self.opt.DDP and torch.distributed.get_rank() != 0:
             return
         state_dict = defaultdict()
         # state_dict['lr'] = self.optimizers[0].param_groups[0]['lr']
@@ -219,13 +257,14 @@ class BaseModel(ABC):
         load_path = self.opt.weight_path
         if not os.path.exists(load_path):
             raise IOError(f"Checkpoint '{load_path}' does not exist")
-        print('loading the model from %s' % load_path)
+        ddp_logger.info('loading the model from %s' % load_path)
         state_dict = torch.load(load_path, map_location=str(self.device))
         for name in self.model_names:
             if isinstance(name, str):
                 net = getattr(self, 'net_' + name)
                 if isinstance(net, torch.nn.parallel.DataParallel) \
                         or isinstance(net, torch.nn.parallel.DistributedDataParallel):
+                    ddp_logger.warning('loading model of type torch.nn.parallel')
                     net = net.module
                 if name in state_dict.keys():
                     net_state_dict = state_dict[name]
@@ -243,7 +282,7 @@ class BaseModel(ABC):
         Parameters:
             verbose (bool) -- if verbose: print the network architecture
         """
-        print('---------- Networks initialized -------------')
+        ddp_logger.info('---------- Networks initialized -------------')
         for name in self.model_names:
             if isinstance(name, str):
                 net = getattr(self, 'net_' + name)
@@ -251,9 +290,10 @@ class BaseModel(ABC):
                 for param in net.parameters():
                     num_params += param.numel()
                 if verbose:
-                    print(net)
-                print('[Network %s] Total number of parameters : %.3f M' % (name, num_params / 1e6))
-        print('-----------------------------------------------')
+                    # print(net)
+                    ddp_logger.info(repr(net))
+                ddp_logger.info('[Network %s] Total number of parameters : %.3f M' % (name, num_params / 1e6))
+        ddp_logger.info('-----------------------------------------------')
 
     @staticmethod
     def set_requires_grad(nets, requires_grad=False):  # self,

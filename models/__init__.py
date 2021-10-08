@@ -25,9 +25,12 @@ In the function <__init__>, you need to define four lists:
 Now you can use the model class by specifying flag '--model dummy'.
 See our template model class 'template_model.py' for more details.
 """
-
+import logging
 import importlib
 from models.networks.base_model import BaseModel
+
+
+ddp_logger = logging.getLogger('ddp_logger')
 
 
 # 参考 https://github.com/rwightman/pytorch-image-models/tree/master/timm/
@@ -72,6 +75,6 @@ def create_model(opt):
     """
     model = find_model_using_name(opt.model_name)
     instance = model(opt)
-    print("model [%s] was created" % type(instance).__name__)
+    ddp_logger.info("model [%s] was created" % type(instance).__name__)
     return instance
 

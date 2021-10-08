@@ -16,9 +16,9 @@ python train.py --dataroot /home/users/lf/CODE/PycharmProjects/DLForPytorch/trac
                 --batch_size 15  \
                 --load_size 256 --crop_size 256 \
                 --preprocess None \
-                --display_winsize 256 \
-                --display_freq 400 --display_ncols 4 --display_id 1  \
-                --display_server "http://127.0.0.1"  --display_env main --display_port 8097 \
+                --html_winsize 256 \
+                --display_freq 400 --visdom_ncols 4 --visdom_id 1  \
+                --visdom_server "http://127.0.0.1"  --visdom_env main --visdom_port 8097 \
                 --update_html_freq 1000 --print_freq 100 \
                 --save_latest_freq 5000 --save_epoch_freq 5 \
                 --phase train \
