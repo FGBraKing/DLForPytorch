@@ -3,7 +3,6 @@ import sys
 import ntpath
 import time
 import torch
-import visdom
 import numpy as np
 
 from . import html
@@ -13,6 +12,12 @@ from subprocess import Popen, PIPE
 from data.transforms.transformOnTensor import tensor2im
 from utils.others.img_io import save_image
 from utils.others.utils import mkdirs
+
+try:
+    import visdom
+    has_visdom = True
+except ImportError:
+    has_visdom = False
 
 
 if sys.version_info[0] == 2:
@@ -82,11 +87,11 @@ class Visualizer:
         # cache the option
         self.opt = opt
         self.name = opt.name
-        self.device = torch.device('cuda:{}'.format(opt.local_rank)) if opt.local_rank >= 0 else torch.device('cpu')
+        self.device = torch.device('cuda:{}'.format(opt.local_gpu)) if opt.local_gpu >= 0 else torch.device('cpu')
 
         self.use_html = opt.isTrain and opt.with_html
         self.use_tensorboard = opt.isTrain and opt.with_tensorboard
-        self.use_visdom = opt.isTrain and opt.with_visdom and opt.visdom_id > 0
+        self.use_visdom = opt.isTrain and opt.with_visdom and opt.visdom_id > 0 and has_visdom
 
         # connect to a visdom server given <display_port> and <display_server>
         if self.use_visdom:

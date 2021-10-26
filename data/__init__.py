@@ -66,12 +66,12 @@ class CustomDatasetDataLoader:
         # print("dataset [%s] was created" % type(self.dataset).__name__)
         ddp_logger.warning("dataset [%s] was created" % type(self.dataset).__name__)
         sampler = torch.utils.data.distributed.DistributedSampler(self.dataset,
-                                                                  num_replicas=torch.distributed.get_world_size(),
-                                                                  rank=torch.distributed.get_rank(),
+                                                                  num_replicas=opt.world_size,
+                                                                  rank=opt.rank,
                                                                   shuffle=not opt.serial_batches,
                                                                   seed=0,
-                                                                  drop_last=False) if opt.DDP else None
-
+                                                                  drop_last=False) if opt.use_distribute_sample else None
+        # torch.distributed.get_world_size()  torch.distributed.get_rank()
         # batch_sample = torch.utils.data.BatchSampler(sampler=sampler, batch_size=opt.batch_size, drop_last=False)
         # collate_fn = None
 

@@ -5,7 +5,7 @@
 from yacs.config import CfgNode as CN
 
 
-_C = CN(new_allowed=False)  # init_dict=None, key_list=None,
+_C = CN(new_allowed=True)  # init_dict=None, key_list=None, new_allowed=False
 
 
 # ---------------------------------------------------------------------------- #
@@ -17,10 +17,14 @@ _C.model_name = None
 _C.seed = 1008
 _C.gpu_ids = None
 _C.visible_gpu = None
-
+_C.local_gpu = -1
+_C.DEBUG = None
+_C.deterministic = None
 # ---------------------------------------------------------------------------- #
-# distribution
+# tricks
 # ---------------------------------------------------------------------------- #
+_C.use_mixed_precision = None
+# DDP
 _C.DP = None
 _C.DDP = None
 _C.SyncBatchNorm = None
@@ -29,6 +33,15 @@ _C.rank = None
 _C.local_rank = None
 _C.dist_url = None
 _C.dist_backend = 'nccl'
+# horovod
+_C.HOROVOD = False
+_C.HOROVOD_fp16 = False
+_C.HOROVOD_backward_passes_per_step = False
+_C.HOROVOD_use_adasum = False
+_C.HOROVOD_gradient_predivide_factor = 1.0
+# Apex
+_C.APEX = False
+_C.APEX_opt_level = 'O1'
 # ---------------------------------------------------------------------------- #
 # dataset
 # ---------------------------------------------------------------------------- #
@@ -92,11 +105,12 @@ _C.lr_noise = None
 _C.logs_dir = './traces/logs'
 _C.checkpoints_dir = './traces/checkpoints'
 _C.weight_path = None
+_C.optimizer_path = None
+_C.apex_path = None
 _C.continue_train = None
 _C.verbose = None
 # additional
 _C.suffix = None
-_C.DEBUG = None
 _C.epoch_start = None
 _C.num_epochs = None
 
@@ -122,15 +136,15 @@ _C.with_visdom = False
 _C.save_log = True
 
 # visdom
-_C.visdom_server = None
-_C.display_port = None
-_C.display_env = None
-_C.display_id = None
-_C.display_ncols = None
+_C.visdom_server = '172.21.16.17:25555'
+_C.display_port = 6666
+_C.display_env = 'main'
+_C.display_id = 1
+_C.display_ncols = 2
 # html
-_C.display_winsize = None
+_C.display_winsize = 128
 # tensorboard and logging
-_C.draw_model = True
+_C.draw_model = False
 _C.display_histogram = True
 _C.play_video = False
 

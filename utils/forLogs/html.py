@@ -1,7 +1,12 @@
-import dominate
-from dominate.tags import meta, h3, table, tr, td, p, a, img, br
 import os
 from ..others.utils import mkdir
+
+try:
+    import dominate
+    from dominate.tags import meta, h3, table, tr, td, p, a, img, br
+    has_dominate = True
+except ImportError:
+    has_dominate = False
 
 
 class HTML:
@@ -20,6 +25,8 @@ class HTML:
             title (str)   -- the webpage name
             refresh (int) -- how often the website refresh itself; if 0; no refreshing
         """
+        if not has_dominate:
+            raise RuntimeError('you should install dominate for using html')
         print('creating a html object!!!\n')
         self.title = title
         self.web_dir = web_dir

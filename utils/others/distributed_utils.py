@@ -3,6 +3,7 @@
 Hacked together by / Copyright 2020 Ross Wightman
 """
 import torch
+import contextlib
 from torch import distributed as dist
 
 
@@ -33,6 +34,32 @@ def distribute_concat(tensor, num_total_examples):
     concat = torch.cat(output_tensors, dim=0)
     return concat[:num_total_examples]
 
+
+def record_distribute_ddp(opt):
+    opt.world_size = dist.get_world_size()
+    opt.rank = dist.get_rank()
+    opt.backend = dist.get_backend()
+    return opt
+
+
+@contextlib.contextmanager
+def torch_distributed_zero_first(rank: int):
+    # rank = -1, 不执行
+    # rank = 0， with语句执行后同步
+    # rank = 其他， with语句执行前同步
+    if rank not in [-1, 0]:
+        dist.barrier()
+    yield
+    if rank == 0:
+        dist.barrier()
+
+
+def torch_condition_zero_first(condition1, condition2):
+    if condition1:
+        dist.barrier()
+    yield
+    if condition2:
+        dist.barrier()
 
 # ['AllToAllOptions',
 #  'AllreduceCoalescedOptions',

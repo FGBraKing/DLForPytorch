@@ -4,7 +4,10 @@ import warnings
 import numpy as np
 import SimpleITK as sitk
 from typing import List
-from nipype.interfaces.ants import N4BiasFieldCorrection
+try:
+    from nipype.interfaces.ants import N4BiasFieldCorrection
+except ModuleNotFoundError:
+    pass
 
 
 class ToArray:

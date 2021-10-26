@@ -3,6 +3,10 @@ from types import SimpleNamespace
 
 
 def pretty_print_opt(in_opt):
+    print(get_pretty_opt(in_opt))
+
+
+def get_pretty_opt(in_opt):
     if isinstance(in_opt, dict):
         use_opt = in_opt
     else:
@@ -11,7 +15,6 @@ def pretty_print_opt(in_opt):
     str_list.insert(0, '{:*^80s}'.format('Custom config'))
     str_list.append('{:*^80s}'.format('End'))
     message = '\n'.join(str_list)
-    print(message)
     return message
 
 
@@ -149,7 +152,6 @@ class ConfigDict(dict):
                 if isinstance(v, list):
                     self.__convert(v)
                 self[k] = v
-
 
 
 def main():

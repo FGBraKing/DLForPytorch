@@ -27,7 +27,7 @@ def init_seed(seed=1008):
 
 # if len(opt.gpu_ids) > 0:
 #     torch.cuda.set_device(opt.gpu_ids[0])
-def init_torch(gpu_id='0', deterministic=True):
+def init_torch(gpu_id='0', deterministic=False):
     os.environ["CUDA_VISIBLE_DEVICES"] = gpu_id
     torch.multiprocessing.set_sharing_strategy('file_system')
     torch.backends.cudnn.enabled = True

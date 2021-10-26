@@ -5,26 +5,34 @@
 import os
 import torch.multiprocessing as mp
 
-from configs.options.trus_unet3d import ProjectOptions
-from utils.others.utils import init_seed, init_torch
 from train import do_train
+from configs.simple_options import get_opt
+from utils.others.utils import init_seed, init_torch
+# from configs.options.dataset_network import ProjectOptions
 
 
-# 维护rank，local_rank
-def correct_args(ind, args):
+# 维护rank, local_rank, world_size, init_method, backend
+def correct_dist_args(ind, args):
     # 当ind=-1，表示没有使用DDP训练，或者使用了DDP，但使用环境变量提供
     if ind == -1:
         # using environment variables to initialize or not in DDP
         args.rank = -1
-        args.local_rank = args.gpu_ids[0] if args.gpu_ids else -1
+        args.local_rank = -1
     elif args.dist_url == 'env://' and args.rank == -1:
-        args.rank = int(os.environ["RANK"]) + ind
-        args.local_rank = args.gpu_ids[ind]
+        args.local_rank = ind
+        os.environ["RANK"] = int(os.environ["RANK"]) + ind
     else:
+        args.local_rank = ind
         args.rank = args.rank + ind
-        args.local_rank = args.gpu_ids[ind]
 
     return args
+
+
+def setup_apex_env(opt):
+    import os
+    os.environ['RANK'] = str(opt.rank)
+    os.environ['LOCAL_RANK'] = str(opt.local_rank)
+    os.environ['WORLD_SIZE'] = str(opt.world_size)
 
 
 def train(ind, *args):
@@ -34,9 +42,17 @@ def train(ind, *args):
     :return:
     '''
     opt = args[0]
-    init_torch(gpu_id=opt.visible_gpu, deterministic=True)
 
-    opt = correct_args(ind, opt)
+    init_torch(gpu_id=opt.visible_gpu, deterministic=opt.deterministic)
+
+    opt = correct_dist_args(ind, opt)
+
+    if opt.APEX:
+        setup_apex_env(opt)
+
+    # if opt.DEBUG:
+    #     from configs.utils_config import pretty_print_opt
+    #     pretty_print_opt(opt)
 
     do_train(opt)
 
@@ -47,7 +63,11 @@ def train_ddp(args):
     assert args.world_size > 0, 'world_size{} have to > 0'.format(args.world_size)
     assert len(args.gpu_ids) > 0, 'gpu_ids{} have to specified'.format(args.gpu_ids)
     nprocs = min(args.world_size, len(args.gpu_ids))
+
+    print(type(args))
     if len(args.gpu_ids) > 0:
+        # 这个ConfigDict有点问题，不能被spawn传递.  会报 'NoneType' object is not callable
+        # 现在用的是SimpleNamespace
         mp.spawn(fn=train,
                  args=(args,),
                  nprocs=nprocs,
@@ -59,7 +79,10 @@ def train_ddp(args):
 
 
 def main():
-    opt = ProjectOptions().parse(True)   # get training options
+    # opt = ProjectOptions().parse(True)   # get training options
+    # opt = get_opt(args=None)
+    # opt = get_opt(args=['--config_path=configs/defaults/trus_unet3d.yaml', '--use_config'])
+    opt = get_opt(args=['--config_path=configs/defaults/trus_unet3d.yaml', '--use_config'])
     print('option get ready')
 
     if opt.DDP:

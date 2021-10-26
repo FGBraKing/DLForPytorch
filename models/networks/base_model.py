@@ -1,12 +1,22 @@
 import os
 import logging
+import warnings
+
 import torch
 import torch.distributed
 import torch.nn as nn
 from collections import OrderedDict, defaultdict
 from abc import ABC, abstractmethod
-from utils.others.distributed_utils import reduce_mean
+from utils.others.distributed_utils import reduce_mean, torch_distributed_zero_first
 # from models.auxiliary_funs import get_scheduler
+
+try:
+    import apex.amp
+    # import apex.optimizers
+    # from apex.fp16_utils import *
+    has_apex = True
+except ImportError:
+    has_apex = False
 
 
 ddp_logger = logging.getLogger('ddp_logger')
@@ -42,27 +52,28 @@ class BaseModel(ABC):
         #     self.device = torch.device('cuda:{}'.format(opt.local_rank))  #
         # else:
         #     self.device = torch.device('cuda:{}'.format(self.gpu_ids[0])) if self.gpu_ids else torch.device('cpu')
-        self.device = torch.device('cuda:{}'.format(opt.local_rank)) if opt.local_rank >= 0 else torch.device('cpu')
+        self.device = torch.device('cuda:{}'.format(opt.local_gpu)) if opt.local_gpu >= 0 else torch.device('cpu')
         ddp_logger.warning(repr(self.device))
         self.save_dir = os.path.join(opt.checkpoints_dir, opt.name)  # save all the checkpoints to save_dir
         self.logs_dir = os.path.join(opt.logs_dir, opt.name)
-        if not os.path.exists(self.save_dir):
-            ddp_logger.warning('making a dir of {}'.format(self.save_dir))
-            os.mkdir(self.save_dir)
-        if not os.path.exists(self.logs_dir):
-            ddp_logger.warning('making a dir of {}'.format(self.logs_dir))
-            os.mkdir(self.logs_dir)
+        # 多进程情况下，会有重复创建的报错
+        with torch_distributed_zero_first(opt.local_rank):
+            if not os.path.exists(self.save_dir):
+                ddp_logger.warning('making a dir of {}'.format(self.save_dir))
+                os.mkdir(self.save_dir)
+            if not os.path.exists(self.logs_dir):
+                ddp_logger.warning('making a dir of {}'.format(self.logs_dir))
+                os.mkdir(self.logs_dir)
 
         # self.data_paths = []
         self.volume_path = []
         self.label_path = []
         self.model_names = []
         self.loss_names = []
-        if self.isTrain:
-            self.optimizers = []
-            # define self.optimizers and self.loss_criterion
-            # self.schedulers = [get_scheduler(optimizer, opt) for optimizer in self.optimizers]
-            self.schedulers = []
+        self.optimizers = []
+        # define self.optimizers and self.loss_criterion
+        # self.schedulers = [get_scheduler(optimizer, opt) for optimizer in self.optimizers]
+        self.schedulers = []
         self.visual_names = []
         self.metric_names = []
         self.metric_dict = {}
@@ -100,14 +111,16 @@ class BaseModel(ABC):
         """Calculate losses, gradients, and update network weights; called in every training iteration"""
         pass
 
-    # TODO :修改命名得规则和策略
     def setup(self, opt):
-        """Load and print networks; create schedulers
+        """Load and print networks
         Parameters:
             opt (Option class) -- stores all the experiment flags; needs to be a subclass of BaseOptions
         """
         if not self.isTrain or opt.continue_train:
-            self.load_networks()
+            if opt.APEX and has_apex:
+                self.load_for_apex(self.opt.weight_path)
+            else:
+                self.load_networks(self.opt.weight_path)
         self.print_networks(opt.verbose)
 
     def eval(self):
@@ -212,6 +225,37 @@ class BaseModel(ABC):
                         nets.append(net)
         return nets
 
+    def save_for_apex(self, epoch):
+        # restoring the model using the same opt_level
+        if self.opt.DDP and torch.distributed.get_rank() != 0:
+            return
+        state_dict = defaultdict()
+        state_dict['amp'] = apex.amp.state_dict()
+        for name in self.model_names:
+            net = getattr(self, 'net_' + name)
+            state_dict[name] = net.state_dict()
+        for ind, optimizer in enumerate(self.optimizers):
+            state_dict[ind] = optimizer.state_dict()
+
+        save_filename = '%s_net_apex_%s.pth' % (epoch, self.opt.name)
+        save_path = os.path.join(self.save_dir, save_filename)
+        torch.save(state_dict, save_path)
+
+    def load_for_apex(self, load_path):
+        # recommend calling the load_state_dict methods after amp.initialize
+        if not os.path.exists(load_path):
+            raise IOError(f"Checkpoint '{load_path}' does not exist")
+        ddp_logger.info('loading the model from %s' % load_path)
+        state_dict = torch.load(load_path, map_location=str(self.device))
+
+        apex.amp.load_state_dict(state_dict['amp'])
+        for name in self.model_names:
+            if isinstance(name, str):
+                net = getattr(self, 'net_' + name)
+                net.load_state_dict(state_dict[name])
+        for ind, optimizer in enumerate(self.optimizers):
+            optimizer.load_state_dict(state_dict[ind])
+
     def save_networks(self, epoch):
         """Save all the networks to the disk.
 
@@ -248,13 +292,12 @@ class BaseModel(ABC):
         else:
             self.__patch_instance_norm_state_dict(state_dict, getattr(module, key), keys, i + 1)
 
-    def load_networks(self):
+    def load_networks(self, load_path):
         """Load all the networks from the disk.
 
         Parameters:
             epoch (int) -- current epoch; used in the file name '%s_net_%s.pth' % (epoch, name)
         """
-        load_path = self.opt.weight_path
         if not os.path.exists(load_path):
             raise IOError(f"Checkpoint '{load_path}' does not exist")
         ddp_logger.info('loading the model from %s' % load_path)
@@ -309,3 +352,45 @@ class BaseModel(ABC):
                 for param in net.parameters():
                     param.requires_grad = requires_grad
 
+    def save_optimizer(self, epoch):
+        state_dict = defaultdict()
+        # state_dict['lr'] = self.optimizers[0].param_groups[0]['lr']
+        for ind, optimizer in enumerate(self.optimizers):
+            state_dict[ind] = optimizer.state_dict()
+        save_filename = '%s_optimizer_%s.pth' % (epoch, self.opt.name)
+        save_path = os.path.join(self.save_dir, save_filename)
+        torch.save(state_dict, save_path)
+
+    def load_optimizer(self):
+        load_path = self.opt.optim_path
+        if load_path is None:
+            warnings.warn('the path of optimizer is None', RuntimeWarning)
+            return
+        if not os.path.exists(load_path):
+            raise IOError(f"Checkpoint '{load_path}' does not exist")
+        ddp_logger.info('loading the optimizer from %s' % load_path)
+        state_dict = torch.load(load_path, map_location=str(self.device))
+        for ind, optimizer in enumerate(self.optimizers):
+            optimizer.load_state_dict(state_dict[ind])
+
+    def get_optimizers(self):
+        return self.optimizers
+
+
+    # def warp_horovod_optimizer(self):
+    #     import horovod.torch as hvd
+    #     for ind in range(len(self.optimizers)):
+    #         self.optimizers[ind] = hvd.DistributedOptimizer(optimizer=self.optimizers[ind],
+    #                                                         named_parameters=None,
+    #                                                         compression=hvd.Compression.none,
+    #                                                         backward_passes_per_step=1,
+    #                                                         op=hvd.Average,
+    #                                                         gradient_predivide_factor=1.0,
+    #                                                         num_groups=0,
+    #                                                         groups=None,
+    #                                                         sparse_as_dense=False)
+
+
+
+# torch.cuda.amp
+# ['GradScaler', 'autocast', 'autocast_mode', 'custom_bwd', 'custom_fwd', 'grad_scaler']

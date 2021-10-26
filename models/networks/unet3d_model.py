@@ -1,7 +1,9 @@
 import torch
 import logging
+import contextlib
 import torch.distributed
 import torch.nn as nn
+import torch.cuda.amp
 
 from .base_model import BaseModel
 from models.modules import UNet3D
@@ -12,6 +14,21 @@ from models.optim import create_optimizer, create_optimizer_v2
 from models.scheduler import create_scheduler
 from utils.others.metrics import BinaryMetrics, SoftMetrics
 from utils.others.distributed_utils import reduce_mean
+
+try:
+    import apex.amp
+    import apex.parallel
+    # import apex.optimizers
+    # from apex.fp16_utils import *
+    has_apex = True
+except ImportError:
+    has_apex = False
+
+try:
+    import horovod.torch as hvd
+    has_horovod = True
+except ImportError:
+    has_horovod = False
 
 
 ddp_logger = logging.getLogger('ddp_logger')
@@ -25,6 +42,13 @@ def define_3dunet(opt, device):
     init_func = get_init_func(init_type=opt.init_type, init_gain=opt.init_gain)
     net.apply(init_func)
 
+    if opt.APEX and has_apex:
+        if opt.SyncBatchNorm:
+            net = apex.parallel.convert_syncbn_model(net).to(device)
+        else:
+            net = net.to(device)
+        return net
+
     if opt.SyncBatchNorm and opt.DDP:
         ddp_logger.warning('using torch.nn.SyncBatchNorm.convert_sync_batchnorm')
         # only single gpu per process is currently supported
@@ -37,8 +61,8 @@ def define_3dunet(opt, device):
         # 使用DDP前，模型一定要进行初始化
         assert(torch.distributed.is_available())
         net = nn.parallel.DistributedDataParallel(module=net,
-                                                  device_ids=[opt.local_rank],  # 猜测填多个的时候每个进程都相当于DP
-                                                  output_device=opt.local_rank)
+                                                  device_ids=[opt.local_gpu],  # 猜测填多个的时候每个进程都相当于DP
+                                                  output_device=opt.local_gpu)
     elif opt.DP:
         ddp_logger.warning('using nn.parallel.DataParallel')
         # 必须先to(device)，再用DP封装
@@ -68,6 +92,17 @@ class Unet3dModel(BaseModel):
                                                  betas=(opt.beta1, 0.999))
             self.optimizers.append(self.optimizer)
             self.schedulers = [create_scheduler(opt, optimizer)[0] for optimizer in self.optimizers]
+            if opt.APEX and has_apex:
+                self.net_segment, self.optimizers = apex.amp.initialize(self.net_segment,
+                                                                        self.optimizers,
+                                                                        opt_level=opt.APEX_opt_level)
+                ddp_logger.error(f'apex init: {opt.local_rank}, {opt.DDP}')
+                if opt.DDP:
+                    # TODO: 子进程会在这个地方阻塞住无法运行，调试了挺久，找不出问题所在，
+                    #  怀疑是apex库的bug，以后需要的话换个apex的版本试试
+                    self.net_segment = apex.parallel.DistributedDataParallel(self.net_segment, delay_allreduce=True)
+                print(f'apex ddp: {opt.local_rank}')
+
         # specify the images you want to save/display.
         self.visual_names = ['predict', 'label']
         self.metric_names = ['DC', 'recall', 'precision', 'accuracy']
@@ -81,6 +116,43 @@ class Unet3dModel(BaseModel):
         self.loss_dice = None
         self.metrics = None
 
+        self.autocast_context = torch.cuda.amp.autocast if opt.use_mixed_precision else contextlib.nullcontext
+        self.scaler = torch.cuda.amp.GradScaler()
+
+    def warp_horovod_optimizer(self):
+        if not has_horovod:
+            raise RuntimeError('you do not have horovod, please install')
+        # for ind in range(len(self.optimizers)):
+        #     self.optimizers[ind] = hvd.DistributedOptimizer(optimizer=self.optimizers[ind],
+        #                                                     named_parameters=None,
+        #                                                     compression=hvd.Compression.none,
+        #                                                     backward_passes_per_step=1,
+        #                                                     op=hvd.Average,
+        #                                                     gradient_predivide_factor=1.0,
+        #                                                     num_groups=0,
+        #                                                     groups=None,
+        #                                                     sparse_as_dense=False)
+        self.optimizers = []
+        self.optimizer = hvd.DistributedOptimizer(optimizer=self.optimizer,
+                                                  named_parameters=self.net_segment.named_parameters(),
+                                                  compression=hvd.Compression.none,
+                                                  backward_passes_per_step=1,
+                                                  op=hvd.Average,
+                                                  gradient_predivide_factor=1.0,
+                                                  num_groups=0,
+                                                  groups=None,
+                                                  sparse_as_dense=False)
+        # ['Compression', 'FP16Compressor', 'NoneCompressor']
+        # hvd.compression.Compression
+        self.optimizers.append(self.optimizer)
+        self.schedulers = [create_scheduler(self.opt, optimizer)[0] for optimizer in self.optimizers]
+
+    def broadcast_horovod_parameters(self):
+        if not has_horovod:
+            raise RuntimeError('you do not have horovod, please install')
+        hvd.broadcast_parameters(self.net_segment.state_dict(), root_rank=0)
+        hvd.broadcast_optimizer_state(self.optimizer, root_rank=0)
+
     def set_input(self, input):
         self.volume = input['volume'].to(self.device)   # bs C D H W, C=1
         self.label = input['label'].to(self.device)     # bs C D H W, C=1
@@ -89,17 +161,34 @@ class Unet3dModel(BaseModel):
 
     def forward(self):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
-        self.predict = self.net_segment(self.volume)
+        with self.autocast_context():
+            self.predict = self.net_segment(self.volume)
         # self.predict = self.finally_activate(m)
 
     def backward(self):
-        self.loss_dice = self.criterion(self.predict, self.label)
-        self.loss_dice.backward()
+        with self.autocast_context():
+            self.loss_dice = self.criterion(self.predict, self.label)
+
+        # TODO： 待优化。将判断语句放在迭代中，似乎会大幅增加损耗，多做了N次判断
+        if self.opt.use_mixed_precision:
+            self.scaler.scale(self.loss_dice).backward()
+            self.scaler.step(self.optimizer)  # maybe apply to all optimizers
+            self.scaler.update()
+        else:
+            self.loss_dice.backward()
 
     def optimize_parameters(self):
         self.forward()
         self.optimizer.zero_grad()
         self.backward()
+        self.optimizer.step()
+
+    def optimize_parameters_with_apex(self):
+        self.optimizer.zero_grad()
+        self.predict = self.net_segment(self.volume)
+        self.loss_dice = self.criterion(self.predict, self.label)
+        with apex.amp.scale_loss(self.loss_dice, self.optimizers) as scaled_loss:
+            scaled_loss.backward()
         self.optimizer.step()
 
     def compute_visuals(self):
@@ -128,11 +217,13 @@ class Unet3dModel(BaseModel):
             for i in range(len(self.metrics)):
                 if isinstance(self.metrics[i], torch.Tensor):
                     self.metrics[i] = reduce_mean(self.metrics[i], torch.distributed.get_world_size())
+        if self.opt.HOROVOD:
+            pass
         self.metric_dict = dict(zip(keys, self.metrics))
 
 
 def main():
-    from configs.options.trus_unet3d import ProjectOptions
+    from configs.options.dataset_network import ProjectOptions
     opt = ProjectOptions().parse(True)   # get training options
     model = Unet3dModel(opt)
     opt.continue_train = True
