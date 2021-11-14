@@ -117,6 +117,8 @@ _C.num_epochs = None
 # ---------------------------------------------------------------------------- #
 # train
 # ---------------------------------------------------------------------------- #
+_C.use_gradient_accumulation = False
+_C.gradient_accumulation_k_step = None
 # network saving and loading
 _C.save_epoch_start = None
 _C.save_epoch_freq = None
@@ -134,6 +136,7 @@ _C.with_html = False
 _C.with_tensorboard = True
 _C.with_visdom = False
 _C.save_log = True
+_C.save_visuals = False
 
 # visdom
 _C.visdom_server = '172.21.16.17:25555'
@@ -145,7 +148,8 @@ _C.display_ncols = 2
 _C.display_winsize = 128
 # tensorboard and logging
 _C.draw_model = False
-_C.display_histogram = True
+_C.display_on_tensorboard = False
+_C.display_histogram = False
 _C.play_video = False
 
 # ---------------------------------------------------------------------------- #

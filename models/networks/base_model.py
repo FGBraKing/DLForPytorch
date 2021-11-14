@@ -107,7 +107,7 @@ class BaseModel(ABC):
         pass
 
     @abstractmethod
-    def optimize_parameters(self):
+    def optimize_parameters(self, update=True):
         """Calculate losses, gradients, and update network weights; called in every training iteration"""
         pass
 
@@ -122,6 +122,10 @@ class BaseModel(ABC):
             else:
                 self.load_networks(self.opt.weight_path)
         self.print_networks(opt.verbose)
+
+    def zero_grad_optimizers(self):
+        for optimizer in self.optimizers:
+            optimizer.zero_grad()
 
     def eval(self):
         """Make models eval mode during test time"""
@@ -204,9 +208,8 @@ class BaseModel(ABC):
                 # float(...) works for both scalar tensor and float number
 
         if self.opt.DDP:
-            torch.distributed.barrier()
+            # torch.distributed.barrier()
             for k, v in errors_ret.items():
-
                 if isinstance(v, torch.Tensor):
                     errors_ret[k] = reduce_mean(v, torch.distributed.get_world_size())
 
@@ -376,7 +379,6 @@ class BaseModel(ABC):
     def get_optimizers(self):
         return self.optimizers
 
-
     # def warp_horovod_optimizer(self):
     #     import horovod.torch as hvd
     #     for ind in range(len(self.optimizers)):
@@ -389,8 +391,6 @@ class BaseModel(ABC):
     #                                                         num_groups=0,
     #                                                         groups=None,
     #                                                         sparse_as_dense=False)
-
-
 
 # torch.cuda.amp
 # ['GradScaler', 'autocast', 'autocast_mode', 'custom_bwd', 'custom_fwd', 'grad_scaler']

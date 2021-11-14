@@ -3,6 +3,8 @@ import sys
 import ntpath
 import time
 import torch
+import h5py
+import datetime
 import numpy as np
 
 from . import html
@@ -89,9 +91,9 @@ class Visualizer:
         self.name = opt.name
         self.device = torch.device('cuda:{}'.format(opt.local_gpu)) if opt.local_gpu >= 0 else torch.device('cpu')
 
-        self.use_html = opt.isTrain and opt.with_html
-        self.use_tensorboard = opt.isTrain and opt.with_tensorboard
-        self.use_visdom = opt.isTrain and opt.with_visdom and opt.visdom_id > 0 and has_visdom
+        self.use_html = opt.isTrain and opt.with_html and not opt.DEBUG
+        self.use_tensorboard = opt.isTrain and opt.with_tensorboard and not opt.DEBUG
+        self.use_visdom = opt.isTrain and opt.with_visdom and opt.visdom_id > 0 and has_visdom and not opt.DEBUG
 
         # connect to a visdom server given <display_port> and <display_server>
         if self.use_visdom:
@@ -123,13 +125,32 @@ class Visualizer:
                                         filename_suffix=opt.name, write_to_disk=True)
 
         # create a logging file to store training losses
-        self.log_name = os.path.join(opt.logs_dir, opt.name, 'loss_log.txt')
-        mkdirs(os.path.join(opt.logs_dir, opt.name))
-        self.title_logger = log.LOG(logname='title_log', is_save=opt.save_log,
-                                    save_name=self.log_name, fmt="%(asctime)s %(message)s")
-        self.title_logger('================ Training Loss  ==================')
-        self.message_logger = log.LOG(logname='train_log', is_save=self.opt.save_log,
+        self.visuals_dir = os.path.join(opt.logs_dir, opt.name, 'visuals')
+        mkdirs(self.visuals_dir)
+        self.log_name = os.path.join(opt.logs_dir, opt.name, 'message.txt')
+        self.loss_log_name = os.path.join(opt.logs_dir, opt.name, 'loss_log.txt')
+        self.metrics_log_name = os.path.join(opt.logs_dir, opt.name, 'metrics_log.txt')
+
+        if opt.DEBUG:
+            self.opt.save_log = False
+
+        self.message_logger = log.LOG(logname='train_message_log', is_save=self.opt.save_log,
                                       save_name=self.log_name, fmt='%(message)s')
+        self.loss_msg_logger = log.LOG(logname='train_loss_log', is_save=self.opt.save_log,
+                                       save_name=self.loss_log_name, fmt='%(message)s')
+        self.metrics_msg_logger = log.LOG(logname='train__metrics_log', is_save=self.opt.save_log,
+                                          save_name=self.metrics_log_name, fmt='%(message)s')
+
+        self.loss_msg_logger(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        self.metrics_msg_logger(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        self.loss_msg_logger('{:#^50s}'.format('  Training Loss  '))
+        self.metrics_msg_logger('{:#^50s}'.format('  Training metrics  '))
+
+        if opt.test_on_train:
+            test_log_name = os.path.join(opt.logs_dir, opt.name, 'test_metrics_log.txt')
+            self.test_msg_logger = log.LOG(logname='test_log', is_save=self.opt.save_log,
+                                           save_name=test_log_name, fmt='%(message)s')
+            self.test_msg_logger(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
     def create_visdom_connections(self):
         """
@@ -214,7 +235,7 @@ class Visualizer:
                 webpage.add_images(ims, txts, links, width=self.win_size)
             webpage.save()
 
-    def show_current_images(self, visuals, cur_iter):
+    def show_current_images(self, visuals, cur_iter, suffix=''):
         if self.use_visdom:
             idx = 1
             try:
@@ -229,7 +250,7 @@ class Visualizer:
             for name, image in visuals.items():
                 if image.ndim == 2:
                     image = torch.unsqueeze(image, dim=0)
-                self.writer.add_image(tag=name, img_tensor=image, global_step=cur_iter)
+                self.writer.add_image(tag=name+suffix, img_tensor=image, global_step=cur_iter)
 
     def show_current_images_v2(self, tag, img_tensor, global_step=None):
         if self.use_tensorboard:
@@ -325,7 +346,7 @@ class Visualizer:
         message = '(epoch: %d, iters: %d, time: %.3f, data: %.3f) ' % (epoch, iters, t_comp, t_data)
         for k, v in losses.items():
             message += '%s: %.3f ' % (k, v)
-        self.message_logger(message)
+        self.loss_msg_logger(message)
 
     def print_current_metrics(self, metrics, epoch, iters):
         message = '(epoch: %d, iters: %d) ' % (epoch, iters)
@@ -335,9 +356,20 @@ class Visualizer:
             except TypeError as e:
                 # print('some wrong happened %s' % e)
                 message += '%s: %r ' % (k, list(v))
-        self.message_logger(message)
+        self.metrics_msg_logger(message)
 
-    def write_log(self, text):
+    def print_current_test_metrics(self, metrics, epoch, batch_id, prefix=''):
+        message = prefix
+        message += '(epoch: %d, batch_id: %d) ' % (epoch, batch_id)
+        for k, v in metrics.items():
+            try:
+                message += '%s: %.4f ' % (k, v)
+            except TypeError as e:
+                # print('some wrong happened %s' % e)
+                message += '%s: %r ' % (k, list(v))
+        self.test_msg_logger(message)
+
+    def write_text(self, text):
         assert isinstance(text, str)
         self.message_logger(text)
 
@@ -372,6 +404,12 @@ class Visualizer:
         if self.use_tensorboard:
             self.writer.add_pr_curve_raw(tag, true_positive_counts, false_positive_counts, true_negative_counts,
                                          false_negative_counts, precision, recall, global_step, num_thresholds)
+
+    def save_visuals(self, visuals, name):
+        save_name = os.path.join(self.visuals_dir, name+'visuals.h5')
+        with h5py.File(save_name, mode='w') as fw:
+            for name, image in visuals.items():
+                fw.create_dataset(name=name, data=image.clone().detach().cpu().numpy())
 
     def close(self):
         if self.use_tensorboard:

@@ -11,6 +11,9 @@ from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection, Line3DCollection
 
 
+# fig = plt.figure()  # an empty figure with no Axes
+# fig, ax = plt.subplots()  # a figure with a single Axes
+# fig, axs = plt.subplots(2, 2)  # a figure with a 2x2 grid of Axes
 def read_nii(img_path):
     img = nib.load(img_path)
     img_array = img.get_data()  # W H D
@@ -92,7 +95,8 @@ def show_image_label(image, label, num=None, figsize=None, cmap='gray', title=No
         plt.show()
 
 
-def show_volume_label(volume, label, row=5, col=5, title='number', add_line=False, normalize_per=False):
+def show_volume_label(volume, label, add_line=False, **kwargs):
+    # kwargs: max_num\fix_num\normalize_per\title\col\row
     assert label.ndim == 3, "the dim of the gray volume must be 3 of D H W"
     assert volume.shape == label.shape
     label = label.astype(volume.dtype)
@@ -106,15 +110,45 @@ def show_volume_label(volume, label, row=5, col=5, title='number', add_line=Fals
         volume_label = np.concatenate([volume, med_line, label], axis=-1)
     else:
         volume_label = np.concatenate([volume, label], axis=-1)
-    show_array_3d(volume_label, row=row, col=col, title=title, normalize_per=normalize_per)
+
+    show_array_3d(volume_label, **kwargs)
 
 
-def show_array_3d(array, row=5, col=5, title='number', normalize_per=False):
+def show_volume_label_predict(volume, label, predict, add_line=False, **kwargs):
+    assert label.ndim == 3, "the dim of the gray volume must be 3 of D H W"
+    assert volume.shape == label.shape == predict.shape
+    label = label.astype(volume.dtype)
+    predict = predict.astype(volume.dtype)
+
+    label = np.where(label > 0.5, np.max(volume), np.min(volume))
+    predict = np.where(predict > 0.5, np.max(volume), np.min(volume))
+
+    if add_line:
+        med_line = np.ones(shape=label.shape[:-1], dtype=volume.dtype) * np.max(volume)
+        med_line = med_line[..., np.newaxis]
+        volume_label_predict = np.concatenate([volume, med_line, label, med_line, predict], axis=-1)
+    else:
+        volume_label_predict = np.concatenate([volume, label, predict], axis=-1)
+    show_array_3d(volume_label_predict, **kwargs)
+
+
+def show_array_3d(array, row=5, col=5, title='number', normalize_per=False, fix_num=False, max_num=40, fig_list=[]):
     assert array.ndim == 3, "the array'dim is not 3"
     channel = array.shape[0]   # D H W
     total = row * col
+    # current_num = len(plt.get_fignums())
+
     for i in range(ceil(channel/total)):
-        fig, ax = plt.subplots(row, col)
+        if total == 1:
+            show_image(array[i, :, :], num=i, title=f'{i}')
+
+        if fix_num:
+            fig = fig_list[max_num - i - 1]
+            ax = fig.subplots(nrows=row, ncols=col)
+        else:
+            fig, ax = plt.subplots(row, col)
+
+        # fig, ax = plt.subplots(row, col, num=num)
         fig.suptitle(f'{title}:{i+1:2d}')
         for j in range(row):
             for k in range(col):
@@ -126,8 +160,38 @@ def show_array_3d(array, row=5, col=5, title='number', normalize_per=False):
                     ax[j][k].imshow(data, cmap='gray')  # f'{i * 25 + j * 5 + k}'
                     ax[j][k].set_title(f'{i * total + j * col + k + 1}', fontsize=5, color='r')
                     ax[j][k].axis('off')
+                    # ax[j][k].xlabel('x')
                     ax[j][k].set(xlabel='x', ylabel='y')
-    plt.show()
+        fig.show()
+    # plt.show()
+
+
+def plot_2d(x, y, fig_title=None, ax_title=None, x_label=None, y_label=None, *args, **kwargs):
+    # 主要是要设置线、坐标轴、刻度、注释
+    # color = ['b','g','r','c','m','y','k','w']
+    # linestyle = ['-','--','-.',':']
+    # marker=['.',',','o','v','^','<','>','1','2','3','4','s','p','*','h','H','+','x','D','d','|','_','.',',']
+    # linewidth=2
+
+    # color="blue",linewidth=20,marker="o",markersize=50,
+    # markerfacecolor="red",markeredgewidth=6,markeredgecolor="grey"
+
+    # fig = plt.figure()
+    # ax = fig.add_subplot(111)
+    fig, ax = plt.subplots()
+    # 640x480
+    if fig_title:
+        fig.suptitle(fig_title, fontsize=14, fontweight='bold')
+    if ax_title:
+        ax.set_title(ax_title)
+    if x_label:
+        ax.set_xlabel(x_label)
+    if y_label:
+        ax.set_ylabel(y_label)
+    ax.plot(x, y, *args, **kwargs)
+    ax.legend()
+    fig.show()
+    plt.close(fig)
 
 
 def plot_3d(image, threshold=-300):

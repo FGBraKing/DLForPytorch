@@ -73,6 +73,69 @@ class TrusDataset(CustomDataset):
             # print(torch.max(tt['label']))
 
 
+class TestTrusDataset(BaseDataset):
+    def __init__(self, opt, loader=nii_loader):
+        super(TestTrusDataset, self).__init__(opt)
+        self.paths = get_trus_path(opt.dataroot, opt.phase)
+        self.data_size = len(self.paths)
+        self.loader = loader
+
+    def __getitem__(self, index):
+        volume_path = self.paths[index]['volume']
+        label_path = self.paths[index]['label']
+        volume = self.loader(volume_path)   # DHW, zyx
+        label = self.loader(label_path)
+        return {'volume': volume, 'label': label, 'volume_path': volume_path, 'label_path': label_path}
+
+    def __len__(self):
+        return self.data_size
+
+
+class PredictTrusDataset(BaseDataset):
+    def __init__(self, opt, loader=nii_loader):
+        # save the option and dataset root
+        super(PredictTrusDataset, self).__init__(opt)
+
+        self.paths = get_trus_path(opt.dataroot, opt.phase)  # should be [{'volume':volume,'label':label}, ...]
+        self.data_size = len(self.paths)
+
+        self.loader = loader
+        self.pre_transform = get_pre_transform(opt)
+        self.transform = get_transform(opt)
+        self.post_transform = get_post_transform(opt)
+
+        self.to_tensor = ToTensor(expand_dims=True)
+
+    def __getitem__(self, index):
+        volume_path = self.paths[index]['volume']
+        label_path = self.paths[index]['label']
+        volume = self.loader(volume_path)   # DHW, zyx
+        label = self.loader(label_path)
+        origin_shape = label.shape
+
+        # 进行形状变换前的对volume进行的一些特殊处理,目前为空
+        if self.pre_transform:
+            volume = self.pre_transform(volume)
+        # 同时对volume和label进行的一些处理，主要包括，旋转、放缩、剪切，镜像，通道变换等
+        if self.transform:
+            volume, label = self.transform(volume, label)
+        # 单独对volume做的一些处理，主要包括亮度、对比度、噪声变换等
+        if self.post_transform:
+            volume = self.post_transform(volume)
+
+        now_shape = label.shape
+
+        volume = self.to_tensor(volume)
+        label = self.to_tensor(label)
+
+        return {'volume': volume, 'label': label, 'volume_path': volume_path, 'label_path': label_path,
+                'origin_shape': origin_shape, 'now_shape': now_shape}
+
+    def __len__(self):
+        """Return the total number of images."""
+        return self.data_size
+
+
 def main():
     import argparse
     import numpy as np

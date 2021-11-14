@@ -1,6 +1,5 @@
-import numpy as np
 from argparse import ArgumentParser, REMAINDER, ZERO_OR_MORE, OPTIONAL
-from configs.utils_config import ConfigDict, dict2obj, SimpleNamespace
+from configs.utils_config import ConfigDict, dict2obj, SimpleNamespace, get_pretty_opt
 
 
 def parse_args(args=None):
@@ -32,7 +31,7 @@ def parse_args(args=None):
 # 自定义options类， opt = get_opt(args=['--option_name={}', 'train', ...]])
 # 使用yaml文件参数输入， opt = get_opt(args=['--config_path={}', '--use_config'])
 # 注意，并行时候要注意local_rank的赋值。所有参数都可通过命令行输入
-def get_opt(args=None):
+def get_opt(args=None, save_log=True):
     args = parse_args(args=args)    #
     # print('args:', args)
     if args.use_config and args.config_path is not None:
@@ -40,11 +39,10 @@ def get_opt(args=None):
         cfg.merge_from_file(args.config_path)           # dict
         if args.use_current_local_rank:
             cfg.local_rank = args.local_rank
-
         option = SimpleNamespace(**cfg)
         # option = ConfigDict(cfg)
         option.use_distribute_sample = option.DDP or option.HOROVOD
-        # option.random_state = np.random.RandomState(seed=option.seed)
+
         return option
     else:
         import importlib
@@ -63,7 +61,7 @@ if __name__ == '__main__':
     # opt = parse_args(args=['fad', '--local_rank=5', '--config_path=2', '--dsf', 'haha', '--local_rank', '4'])
     # opt = parse_args(args=['fff', '--name=hello'])
     opt = get_opt(args=['fff', '--name=hello'])
-    print(type(opt))
+    # print(type(opt))
     from utils_config import pretty_print_opt
     pretty_print_opt(opt)
     # print(opt)

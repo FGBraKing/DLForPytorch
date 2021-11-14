@@ -11,8 +11,9 @@ import torchvision.transforms as transforms
 
 from data.utils_data import nii_loader, h5_loader, get_flip_volumes, slide_crop, get_pad_image
 from utils.others.utils import print_numpy, clip_array, slim_array, convert_str_to_list
-from data.transforms.transformOnArray import random_scale, NormalizeRange, Normalize, normalize, ToTensor
+from data.transforms.transformOnArray import NormalizeRange, Normalize, normalize, ToTensor
 from utils.others.img_io import show_array_3d, show_volume_label, show_array_histogram, show_pired_histogram
+# from data.transforms.transformOnArray import random_scale
 
 
 def get_promise_path(dataroot, data_phase):

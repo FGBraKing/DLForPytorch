@@ -14,6 +14,7 @@ from models.optim import create_optimizer, create_optimizer_v2
 from models.scheduler import create_scheduler
 from utils.others.metrics import BinaryMetrics, SoftMetrics
 from utils.others.distributed_utils import reduce_mean
+from utils.others.utils import print_numpy
 
 try:
     import apex.amp
@@ -37,7 +38,7 @@ ddp_logger = logging.getLogger('ddp_logger')
 def define_3dunet(opt, device):
     assert not(opt.DDP and opt.DP)
     net = UNet3D(in_channels=opt.input_nc, out_channels=opt.output_nc, final_sigmoid=False,
-                 conv_layer_order=opt.conv_order, init_channel_number=opt.init_channel_number)
+                 conv_layer_order=opt.conv_order, init_channel_number=opt.init_channel_number, use_activation=False)
     # init_net(net, opt.init_type, opt.init_gain, opt.gpu_ids)
     init_func = get_init_func(init_type=opt.init_type, init_gain=opt.init_gain)
     net.apply(init_func)
@@ -98,17 +99,15 @@ class Unet3dModel(BaseModel):
                                                                         opt_level=opt.APEX_opt_level)
                 ddp_logger.error(f'apex init: {opt.local_rank}, {opt.DDP}')
                 if opt.DDP:
-                    # TODO: 子进程会在这个地方阻塞住无法运行，调试了挺久，找不出问题所在，
-                    #  怀疑是apex库的bug，以后需要的话换个apex的版本试试
                     self.net_segment = apex.parallel.DistributedDataParallel(self.net_segment, delay_allreduce=True)
                 print(f'apex ddp: {opt.local_rank}')
 
         # specify the images you want to save/display.
-        self.visual_names = ['predict', 'label']
+        self.visual_names = ['predict', 'label', 'volume']
         self.metric_names = ['DC', 'recall', 'precision', 'accuracy']
 
         self.get_metrics = BinaryMetrics()
-        self.get_metrics_soft = SoftMetrics(smooth=0., eps=1e-9)
+        self.get_metrics_soft = SoftMetrics(smooth=0., eps=1e-6)
 
         self.volume = None
         self.label = None
@@ -117,7 +116,10 @@ class Unet3dModel(BaseModel):
         self.metrics = None
 
         self.autocast_context = torch.cuda.amp.autocast if opt.use_mixed_precision else contextlib.nullcontext
+        self.no_sync_context = self.net_segment.no_sync if opt.DDP else contextlib.nullcontext
         self.scaler = torch.cuda.amp.GradScaler()
+
+        self.is_activated = False
 
     def warp_horovod_optimizer(self):
         if not has_horovod:
@@ -161,13 +163,17 @@ class Unet3dModel(BaseModel):
 
     def forward(self):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
+
         with self.autocast_context():
             self.predict = self.net_segment(self.volume)
+        self.is_activated = False
         # self.predict = self.finally_activate(m)
 
     def backward(self):
         with self.autocast_context():
             self.loss_dice = self.criterion(self.predict, self.label)
+
+        self.loss_dice = self.loss_dice / self.opt.gradient_accumulation_k_step
 
         # TODO： 待优化。将判断语句放在迭代中，似乎会大幅增加损耗，多做了N次判断
         if self.opt.use_mixed_precision:
@@ -177,11 +183,16 @@ class Unet3dModel(BaseModel):
         else:
             self.loss_dice.backward()
 
-    def optimize_parameters(self):
-        self.forward()
-        self.optimizer.zero_grad()
-        self.backward()
-        self.optimizer.step()
+    def optimize_parameters(self, update=True):
+        if update:
+            self.forward()
+            self.backward()
+            self.optimizer.step()
+            self.optimizer.zero_grad()
+        else:
+            with self.no_sync_context():
+                self.forward()
+                self.backward()
 
     def optimize_parameters_with_apex(self):
         self.optimizer.zero_grad()
@@ -192,9 +203,15 @@ class Unet3dModel(BaseModel):
         self.optimizer.step()
 
     def compute_visuals(self):
-        self.predict = self.finally_activate(self.predict)
+        if not self.is_activated:
+            self.predict = self.finally_activate(self.predict)
+            self.is_activated = True
 
     def compute_metrics(self, *args, **kwargs):
+        if not self.is_activated:
+            self.predict = self.finally_activate(self.predict)
+            self.is_activated = True
+
         keys = tuple(self.metric_names) + args
 
         # old version by numpy
@@ -213,7 +230,7 @@ class Unet3dModel(BaseModel):
 
         # print(dict(zip(keys, self.metrics)))
         if self.opt.DDP:
-            torch.distributed.barrier()
+            # torch.distributed.barrier()
             for i in range(len(self.metrics)):
                 if isinstance(self.metrics[i], torch.Tensor):
                     self.metrics[i] = reduce_mean(self.metrics[i], torch.distributed.get_world_size())

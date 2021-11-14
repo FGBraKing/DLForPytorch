@@ -336,7 +336,7 @@ class MutiClassMetrics:
 # [*], tensor
 class SoftMetrics:
     ''' basic metrics, only apply to sample set. used for training'''
-    def __init__(self, smooth=0., eps=1e-9):
+    def __init__(self, smooth=0., eps=1e-6):
         self.smooth = smooth
         self.eps = eps
 

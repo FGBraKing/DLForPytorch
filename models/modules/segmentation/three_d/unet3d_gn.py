@@ -29,7 +29,7 @@ class UNet3D(nn.Module):
     """
 
     def __init__(self, in_channels, out_channels, final_sigmoid, interpolate=True, conv_layer_order='crg',
-                 init_channel_number=64):
+                 init_channel_number=64, use_activation=False):
         super(UNet3D, self).__init__()
 
         # number of groups for the GroupNorm
@@ -76,6 +76,8 @@ class UNet3D(nn.Module):
         else:
             self.final_activation = nn.Softmax(dim=1)
 
+        self.use_activation = use_activation
+
     def forward(self, x):
         # encoder part
         encoders_features = []
@@ -98,7 +100,9 @@ class UNet3D(nn.Module):
 
         # apply final_activation (i.e. Sigmoid or Softmax) only for prediction.
         # During training the network outputs logits and it's up to the user to normalize it before visualising with tensorboard or computing validation metric
-        if not self.training:
+        # if not self.training:
+        #     x = self.final_activation(x)
+        if self.use_activation:
             x = self.final_activation(x)
 
         return x
@@ -171,9 +175,15 @@ class DoubleConv(nn.Sequential):
             elif char == 'b':
                 is_before_conv = i < order.index('c')
                 if is_before_conv:
-                    self.add_module(f'norm{pos}', nn.BatchNorm3d(in_channels))
+                    self.add_module(f'norm{pos}', nn.BatchNorm3d(in_channels))   # , track_running_stats=False
                 else:
                     self.add_module(f'norm{pos}', nn.BatchNorm3d(out_channels))
+            elif char == 'i':
+                is_before_conv = i < order.index('c')
+                if is_before_conv:
+                    self.add_module(f'norm{pos}', nn.InstanceNorm3d(in_channels))   # , track_running_stats=False
+                else:
+                    self.add_module(f'norm{pos}', nn.InstanceNorm3d(out_channels))
             else:
                 raise ValueError(
                     f"Unsupported layer type '{char}'. MUST be one of 'b', 'r', 'c'")
@@ -278,6 +288,7 @@ if __name__ == "__main__":
 
     for k, v in net.named_parameters():
         print(k, v.size())
+
         print(v.nelement())
 
     inputs = torch.rand((16, 1, 64, 64, 64), requires_grad=True).to(device)

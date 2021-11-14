@@ -1195,9 +1195,9 @@ class Transformer:
 
     def __init__(self, opt):
         self.opt = opt
-        self.phase = opt.phase
         self.preprocess = opt.preprocess
-        self.random_state = opt.random_state
+        if getattr(opt, 'random_state', None) is not None:
+            self.random_state = opt.random_state
 
     def standard_transform(self):
         '''

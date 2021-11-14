@@ -14,6 +14,7 @@ import torch.nn as nn
 import nibabel as nib
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
+import h5py
 import torch.optim
 import torch.distributed
 import torch.utils.data
@@ -47,6 +48,7 @@ from models.scheduler import create_scheduler
 from horovod.runner.launch import run_commandline
 from utils.others.distributed_utils_horovod import reduce_mean, metric_average
 import torch.distributed.launch
+from utils.others.img_io import show_volume_label_predict
 
 
 def print_visible(obj):
@@ -193,10 +195,23 @@ def test_generator():
     for i in range(10):
         print('before yield', i)
         yield i
-        print('after yield')
+        print('after yield', i)
 
 
-def main():
+def test_get_item():
+    pass
+
+
+class TestGetItem:
+    def __init__(self):
+        self.num = 10
+        self.test_list = list(range(self.num))
+
+    def __getitem__(self, item):
+        return self.test_list[item]
+
+
+def test_generator_code():
     aa = test_generator()
 
     print_visible(aa)
@@ -205,6 +220,78 @@ def main():
     print(next(aa))
     print('**'*50)
     print(next(aa))
+    print('**'*50)
+
+
+def test_val_dataset():
+    import numpy as np
+    from data.dataloads.base_dataset import TestOnePatientDataset
+    from data.dataloads.trus_dataset import TestTrusDataset
+    from yacs.config import CfgNode as CN
+    from torch.utils.data import DataLoader
+    from utils.others.img_io import show_image, show_array_3d
+    opt = CN(new_allowed=True)
+
+    opt.dataroot = './traces/datasets/prostate_daf3d_pre'
+    opt.phase = 'test'
+    opt.crop_size = 96
+    opt.stride = 96
+    opt.no_augment = False
+
+    test_dataset = TestTrusDataset(opt)
+    #  {'volume': volume, 'label': label, 'volume_path': volume_path, 'label_path': label_path}
+    print('test_dataset:{}'.format(len(test_dataset)))
+    for data in test_dataset:
+        print(data['volume'].shape)     # (175, 224, 224)
+        show_image(data['volume'][:, :, 100], title='origin image')
+
+        one_patient_dataset = TestOnePatientDataset(data['volume'][:, :, 100], opt)
+        print('one_patient_dataset:{}'.format(len(one_patient_dataset)))
+
+        dataset_info = one_patient_dataset.get_info()   # 'crop_size' 'stride' 'origin_shape'  'pad_shape'
+        dataset_volumes = one_patient_dataset.get_volume()   # 'origin_volume'  'pad_volume'
+        row, column = one_patient_dataset.get_crop_num_list()
+
+        test_dataloader = DataLoader(one_patient_dataset,
+                                     batch_size=len(one_patient_dataset),
+                                     shuffle=False,
+                                     num_workers=8,
+                                     drop_last=False)
+        print('test_dataloader:{}'.format(len(test_dataloader)))
+        for test_data in test_dataloader:
+            print(test_data.shape)      # N C ...
+            data_to_show = test_data[:, 0, ...].numpy()
+            show_array_3d(data_to_show, row, column, title='crop_image')
+            # 还原的时候，axis的顺序是由大到小，2D先1后0，3D是210。也就是从循环的最深层开始，逐层还原
+            # concat_array = [np.concatenate(data_to_show[i*column:i*column+column], axis=1) for i in range(row)]
+            # show_image(concat_array[1], title='partly concat image')
+            # concat_array = np.concatenate(concat_array, 0)
+            # show_image(concat_array, title='concat image')
+            for kk in range(test_data.shape[1]):
+                data_to_show = test_data[kk].numpy()
+                show_array_3d(data_to_show, 2, 2, title='crop_image')
+                break
+
+            pass
+        break
+
+
+def main():
+    # test_val_dataset()
+    data_path = r'/home/lf/raid_lf/PROJECT/DLForPytorch/traces/results/' \
+                r'trus_unet3d_DDP_SynBN_crop128_bs3x4_ch32_dc_adam_1e-4/test/' \
+                r'slide_test_pad_noaug/65_net_trus_unet3d_DDP_SynBN_crop128_bs3x4_ch32_dc_adam_1e-4id-3.h5'
+    patient_id = re.match(r'^/(?:.+/)*((\d+).*)\.h5$', data_path).groups()[-1]
+    fr = h5py.File(data_path, 'r')
+    label = fr.get('label')[:]
+    segment = fr.get('segment')[:]
+    volume = fr.get('pad_volume')[:]
+    fr.close()
+    show_volume_label_predict(volume.transpose((2, 1, 0)),
+                              label.transpose((2, 1, 0)),
+                              segment.transpose((2, 1, 0)),
+                              True,
+                              row=3, col=2, title=f'test on patient: {patient_id} ')
 
     pass
 

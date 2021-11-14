@@ -10,6 +10,8 @@ import importlib
 import torch.utils.data
 import torch.distributed
 from data.dataloads.base_dataset import BaseDataset
+from collections import defaultdict
+from types import SimpleNamespace
 
 ddp_logger = logging.getLogger('ddp_logger')
 
@@ -49,6 +51,51 @@ def create_dataset(opt):
     data_loader = CustomDatasetDataLoader(opt)
     dataset = data_loader.load_data()
     return dataset
+
+
+def create_test_dataset(opt):
+    test_arg_dict = defaultdict()
+    test_arg_dict['custom'] = True
+    test_arg_dict['serial_batches'] = True
+    test_arg_dict['dataroot'] = opt.dataroot
+    test_arg_dict['phase'] = opt.test_data_phase
+    test_arg_dict['preprocess'] = opt.test_preprocess
+    test_arg_dict['scale'] = opt.test_scale
+    test_arg_dict['target_size'] = opt.crop_size
+    test_arg_dict['crop_size'] = opt.crop_size
+    test_arg_dict['order_data'] = opt.order_data
+    test_arg_dict['order_seg'] = opt.order_seg
+    # ----------------------------------------------------------------
+    # shift_mu shift_sigma elastic_sigma elastic_alpha bright_sigma bright_mu target_size
+    test_arg_dict['shift_mu'] = opt.shift_mu
+    test_arg_dict['shift_sigma'] = opt.shift_sigma
+    test_arg_dict['elastic_sigma'] = opt.elastic_sigma
+    test_arg_dict['elastic_alpha'] = opt.elastic_alpha
+    test_arg_dict['bright_sigma'] = opt.bright_sigma
+    test_arg_dict['bright_mu'] = opt.bright_mu
+
+    dataset_class = find_dataset_using_name(opt.dataset_name)
+    dataset = dataset_class(SimpleNamespace(**test_arg_dict))
+    ddp_logger.warning(" test dataset [%s] was created" % type(dataset).__name__)
+
+    sampler = torch.utils.data.distributed.DistributedSampler(dataset,
+                                                              num_replicas=opt.world_size,
+                                                              rank=opt.rank,
+                                                              shuffle=False,
+                                                              seed=0,
+                                                              drop_last=False) if opt.use_distribute_sample else None
+    dataloader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=opt.test_batchsize,
+        shuffle=False,
+        sampler=sampler,        #
+        batch_sampler=None,     #
+        num_workers=int(opt.num_threads),
+        collate_fn=None,
+        pin_memory=True,
+        drop_last=False
+    )
+    return dataloader
 
 
 class CustomDatasetDataLoader:
@@ -98,6 +145,9 @@ class CustomDatasetDataLoader:
     def set_epoch(self, epoch):
         if self.sample:
             self.sample.set_epoch(epoch)
+
+    def get_loader_size(self):
+        return len(self.dataloader)
 
     def __len__(self):
         """Return the number of data in the dataset"""

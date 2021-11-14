@@ -52,3 +52,33 @@ class ImagePool:
                     return_images.append(image)
         return_images = torch.cat(return_images, 0)   # collect all the images and return
         return return_images
+
+
+class VolumePool:
+    def __init__(self, pool_size):
+        self.pool_size = pool_size
+        if self.pool_size > 0:  # create an empty pool
+            self.num_volumes = 0
+            self.volumes = []
+
+    def add_volume(self, volumes):
+        for volume in volumes:
+            self.volumes.append(volume)
+            self.num_volumes += 1
+            if self.num_volumes > self.pool_size:
+                return
+
+    def get_volume(self, size=1):
+        return_volumes = []
+        for i in range(size):
+            if self.num_volumes > 0:
+                return_volumes.append(self.volumes.pop(-1))
+                self.num_volumes -= 1
+        if len(return_volumes) > 0:
+            return return_volumes
+        else:
+            return None
+
+    def reset_volumes(self):
+        self.num_volumes = 0
+        self.volumes = []

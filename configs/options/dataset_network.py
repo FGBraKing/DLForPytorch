@@ -25,7 +25,8 @@ class ProjectOptions:
                             help='available gpu ids: e.g. 0  0,1,2, 0,2. use -1 for CPU;'
                                  'when using DDP, it also means nproc on this node')
         parser.add_argument('--visible_gpu', type=str, default='0,1,2,3', help='visible gpu ids: e.g. 0  0,1,2, 0,2.')
-        parser.add_argument('--DEBUG', action='store_false', help='in the debug mode, print moreover info')
+        parser.add_argument('--DEBUG', action='store_false',
+                            help='in the debug mode, print moreover info, but do not save any more')
         parser.add_argument('--deterministic', required=False, default=False, action="store_true",
                             help='Makes training deterministic, but reduces training speed substantially')
         return parser
@@ -192,6 +193,8 @@ class ProjectOptions:
                             help='frequency of test, when training')
         parser.add_argument('--test_on_train', action='store_true',
                             help='whether do_test, on training')
+        parser.add_argument('--save_visuals', action='store_true',
+                            help='whether to save visuals')
 
         # visualizer parameters
         parser.add_argument('--with_html', action='store_true',
@@ -218,6 +221,7 @@ class ProjectOptions:
         parser.add_argument('--draw_model', action='store_true', help='whether to draw model on tensorboard')
         parser.add_argument('--display_histogram', action='store_true', help='whether display histogram ')
         parser.add_argument('--play_video', action='store_true', help='whether play volume as a video ')
+        parser.add_argument('--display_on_tensorboard', action='store_true', help='whether to display visuals ')
         return parser
 
     @staticmethod
@@ -267,7 +271,7 @@ class ProjectOptions:
         self.parser = parser
         return parser.parse_args(args=args, namespace=None)
 
-    def print_options(self, opt):
+    def print_options(self, opt, save_log=False):
         """Print and save options
 
         It will print both current options and default values(if different).
@@ -285,8 +289,10 @@ class ProjectOptions:
         print(message)
 
         # save to the disk
-        expr_dir = os.path.join(opt.checkpoints_dir, opt.name)  # opt.dataset_name + opt.model_name + opt.name
-        if opt.save_log:
+        if save_log and opt.save_log and not opt.DEBUG:
+            expr_dir = os.path.join(opt.checkpoints_dir, opt.name)  # opt.dataset_name + opt.model_name + opt.name
+            print('expr_dir:{}'.format(expr_dir))
+            mkdirs(expr_dir)
             file_name = os.path.join(expr_dir, '{}_opt.txt'.format(opt.phase))
             with open(file_name, 'wt') as opt_file:
                 opt_file.write(message)
@@ -302,10 +308,6 @@ class ProjectOptions:
         if (opt.dist_url is None) or (opt.dist_url == "env://") or (opt.world_size == -1) or (opt.rank == -1):
             # 环境变量初始化
             opt.dist_url = 'env://'
-
-        if opt.DDP:
-            assert opt.weight_path is not None
-            opt.continue_train = True if is_train else False
 
         return opt
 
@@ -338,14 +340,11 @@ class ProjectOptions:
 
         opt = self.repair_options(opt, is_train)    # repair some value of args
 
-        # note: 当不用torch.distributed.launch启动时，local_rank需手动选择是否为0，创建expr_dir文件夹
-        expr_dir = os.path.join(opt.checkpoints_dir, opt.name)  # opt.dataset_name + opt.model_name + opt.name
-        print('expr_dir:{}'.format(expr_dir))
-        if not opt.DEBUG:
-            mkdirs(expr_dir)
         if ((not opt.DDP) or (opt.DDP and opt.rank == 0) or (opt.DDP and opt.rank == -1 and opt.local_rank == 0))\
                 and opt.verbose:
             self.print_options(opt)
+        if opt.DDP:
+            assert opt.weight_path is not None or opt.epoch_start == 1
 
         opt = self.change_options(opt, is_train)    # change some type of args
 
