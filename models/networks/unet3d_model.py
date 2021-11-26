@@ -89,8 +89,14 @@ class Unet3dModel(BaseModel):
         if self.isTrain:
             self.criterion = get_loss_criterion(name='bdc', ignore_index=None, reducetion='mean',
                                                 use_batch=True, use_sigmoid=True, smooth=0.).to(self.device)
-            self.optimizer = create_optimizer_v2(self.net_segment.parameters(), opt='adam', lr=opt.lr,
+            self.optimizer = create_optimizer_v2(self.net_segment.parameters(),
+                                                 opt=opt.optimizer_name,
+                                                 lr=opt.lr,
+                                                 weight_decay=opt.weight_decay,
+                                                 momentum=opt.momentum,
                                                  betas=(opt.beta1, 0.999))
+            # self.optimizer = create_optimizer_v2(self.net_segment.parameters(), opt=opt.optimizer_name, lr=opt.lr,
+            #                                      betas=(opt.beta1, 0.999))
             self.optimizers.append(self.optimizer)
             self.schedulers = [create_scheduler(opt, optimizer)[0] for optimizer in self.optimizers]
             if opt.APEX and has_apex:

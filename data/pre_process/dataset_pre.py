@@ -9,6 +9,10 @@ from glob import glob
 from abc import ABC, abstractmethod
 from data.utils_data import save_nii, nii_loader, npy_loader, h5_loader
 from utils.others.utils import slim_array
+from data.transforms.transformOnArray import standardize
+from data.transforms.transforms import resize_image_itk
+from skimage.transform import resize
+from scipy.ndimage.interpolation import zoom
 
 
 class DatasetPre(ABC):
@@ -21,7 +25,6 @@ class DatasetPre(ABC):
         self.kwargs = kwargs
 
     @staticmethod
-    @abstractmethod
     def addition_process(img, img_info, *args, **kwargs):
         return img, img_info
 
@@ -86,12 +89,12 @@ class DatasetPre(ABC):
             # TODO need to be modified when type change
             patient_name = os.path.basename(patient['image']).split('.')[0]
             self._save_img(save_dir, patient_name, img_warp, label,
-                           img_info=img_info, label_info=label_info, save_type=save_type)
+                           img_info=img_info, label_info=label_info, mode=save_type)
 
     @staticmethod
     def _read_img(path):
         filename, filetype = os.path.splitext(path)
-        if filetype.lower() == '.nii':
+        if filetype.lower() == '.nii' or filetype.lower() == '.mhd':
             itk_img = sitk.ReadImage(path)
             img_array = sitk.GetArrayFromImage(itk_img)     # indexes are z,y,x    DHW
             origin = itk_img.GetOrigin()
@@ -104,7 +107,7 @@ class DatasetPre(ABC):
             img_array = h5_loader(path, 'image', 'label')[-1]
             origin, direction, spacing = None, None, None
         else:
-            raise TypeError('Filetype is unsupported')
+            raise TypeError('Filetype(%s) is unsupported' % filetype)
         return img_array, (origin, direction, spacing)
 
     @staticmethod
@@ -165,7 +168,7 @@ class DatasetPre(ABC):
             raise TypeError('It is not supported type of \'{}\' until now'.format(mode))
 
     @abstractmethod
-    def print_cunstom_info(self, *args, **kwargs):
+    def print_custom_info(self, *args, **kwargs):
         pass
 
 
@@ -181,7 +184,112 @@ class DatasetPreOne(DatasetPre):
 
     @staticmethod
     def addition_process(img, img_info, *args, **kwargs):
-        return img, img_info
+        '''
+        :param img: DHW
+        :param img_info: origin, direction, spacing
+        :param args:
+        :param kwargs: 'kit','do_separate_z','is_label', 'new_spacing'
+        :return:
+        '''
+        if 'kit' in kwargs.keys():
+            kit = kwargs['kit']
+        else:
+            kit = 'itk'
+
+        if 'do_separate_z' in kwargs.keys():
+            do_separate_z = kwargs['do_separate_z']
+        else:
+            do_separate_z = False
+
+        if 'is_label' in kwargs.keys():
+            is_label = kwargs['is_label']
+        else:
+            is_label = False
+
+        if 'new_spacing' in kwargs.keys():
+            new_spacing = kwargs['new_spacing']
+        else:
+            new_spacing = [0.625, 0.625, 1.5]
+
+        old_origin = img_info[0]
+        old_direction = img_info[1]
+        old_spacing = img_info[2]
+
+        itk_img = sitk.GetImageFromArray(img)
+        itk_img.SetSpacing(old_spacing)
+        itk_img.SetOrigin(old_origin)
+        itk_img.SetDirection(old_direction)
+
+        if is_label:
+            resamplemethod = sitk.sitkNearestNeighbor
+            # N4BiasCorrect = False
+            order = 0
+        else:
+            resamplemethod = sitk.sitkBSplineResamplerOrder3        # sitkBSplineResamplerOrder3     sitk.sitkLinear
+            order = 3
+            # N4BiasCorrect = True
+
+        if do_separate_z:
+            old_shape = img.shape[::-1]
+            new_shape = np.array(old_shape) * old_spacing / new_spacing
+            new_shape = np.round(new_shape)
+            # x, y
+            reshaped_data = []
+            for slice_id in range(img.shape[0]):
+                reshaped_data.append(resize(img[slice_id, :, :], new_shape[:-1][::-1], order,
+                                            cval=0, mode='edge', anti_aliasing=False))
+            reshaped_data = np.stack(reshaped_data, axis=0)     # z y x
+            # z
+            resize_factor_z = old_spacing[0] / new_spacing[0]
+            resize_factor = [1, 1, resize_factor_z]
+            out_img = zoom(reshaped_data.transpose([2, 1, 0]), resize_factor, order=0, mode='nearest', cval=0.0)
+            # other info
+            new_spacing_refine = (np.array(old_shape) * old_spacing / out_img.shape).tolist()
+            out_info = img_info[0], img_info[1], new_spacing_refine
+            out_img = out_img.transpose([2, 1, 0])
+            print('new spacing:{}'.format(new_spacing_refine))
+            # if new_shape[-1] != img.shape[0]:
+            #     # copied from nnunet
+            #     rows, cols, dim = new_shape[0], new_shape[1], new_shape[2]
+            #     orig_dim, orig_cols, orig_rows = reshaped_data.shape
+            #
+            #     row_scale = float(orig_rows) / rows
+            #     col_scale = float(orig_cols) / cols
+            #     dim_scale = float(orig_dim) / dim
+            #
+            #     map_rows, map_cols, map_dims = np.mgrid[:rows, :cols, :dim]
+            #     map_rows = row_scale * (map_rows + 0.5) - 0.5
+            #     map_cols = col_scale * (map_cols + 0.5) - 0.5
+            #     map_dims = dim_scale * (map_dims + 0.5) - 0.5
+            #
+            #     coord_map = np.array([map_rows, map_cols, map_dims])
+            #
+            #     reshaped_final_data = map_coordinates(reshaped_data, coord_map,
+            #                                           order=order, cval=0, mode='nearest')[None]
+        elif kit == 'itk':
+            print('origin spacing:{}'.format(old_spacing))
+            itk_img_resized = resize_image_itk(itk_img,
+                                               newSpacing=new_spacing,
+                                               newOrigin=old_origin,
+                                               newDirection=old_direction,
+                                               resamplemethod=resamplemethod,
+                                               N4BiasCorrect=False)
+            out_img = sitk.GetArrayFromImage(itk_img_resized)  # z,y,x
+            out_info = itk_img_resized.GetOrigin(), itk_img_resized.GetDirection(), itk_img_resized.GetSpacing()
+            print('new spacing:{}'.format(old_spacing))
+        else:
+            print('origin spacing:{}'.format(old_spacing))
+            resize_factor = np.array(old_spacing, float) / new_spacing
+            out_img = zoom(img.transpose([2, 1, 0]), resize_factor, order=order, mode='constant', cval=0.0)
+            new_spacing_refine = (np.array(img.shape[::-1]) * old_spacing / out_img.shape).tolist()
+            out_info = img_info[0], img_info[1], new_spacing_refine
+            out_img = out_img.transpose([2, 1, 0])
+            print('new spacing:{}'.format(new_spacing_refine))
+        if not is_label:
+            out_img = standardize(out_img, out_img.mean(), out_img.std())
+            # out_img = cut_off_outliers(out_img, 0.05, 99.95, per_channel=False)
+
+        return out_img, out_info
 
     def shuffle_list(self):
         random.shuffle(self.case_list)
@@ -230,7 +338,7 @@ class DatasetPreOne(DatasetPre):
         for data, phase in zip(data_list, phase_list):
             self._process_and_save_data(data, phase, transform, save_root, **kwargs)
 
-    def print_cunstom_info(self, *args, **kwargs):
+    def print_custom_info(self, *args, **kwargs):
         pass
 
 
@@ -257,7 +365,7 @@ class DatasetPreMul(DatasetPre):
     def split_train_val_test(self, *ratio, shuffle=True):
         pass
 
-    def process_and_save_data(self, save_root, transform=None):
+    def process_and_save_data(self, save_root, transform=None, **kwargs):
         pass
 
     def print_cunstom_info(self, *args, **kwargs):

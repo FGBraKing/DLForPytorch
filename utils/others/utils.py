@@ -30,6 +30,7 @@ def init_seed(seed=1008):
 def init_torch(gpu_id='0', deterministic=False):
     os.environ["CUDA_VISIBLE_DEVICES"] = gpu_id
     torch.multiprocessing.set_sharing_strategy('file_system')
+    assert torch.cuda.is_available()
     torch.backends.cudnn.enabled = True
     if deterministic:
         torch.backends.cudnn.deterministic = True
@@ -66,12 +67,13 @@ def dict_to_csv(dct, csv_path):
         w.writerow(dct)
 
 
-def print_numpy(x, val=True, shp=False):
+def print_numpy(x, val=True, shp=False, percentile=False):
     """Print the mean, min, max, median, std, and size of a numpy array
 
     Parameters:
         val (bool) -- if print the values of the numpy array
         shp (bool) -- if print the shape of the numpy array
+        percentile (bool) -- if print the percentile of the numpy array
     """
     x = x.astype(np.float64)
     if shp:
@@ -80,6 +82,11 @@ def print_numpy(x, val=True, shp=False):
         x = x.flatten()
         print('mean = %3.3f, min = %3.3f, max = %3.3f, median = %3.3f, std=%3.3f' % (
             np.mean(x), np.min(x), np.max(x), np.median(x), np.std(x)))
+    if percentile:
+        x = x.flatten()
+        percentile_99_5 = np.percentile(x, 99.5)
+        percentile_00_5 = np.percentile(x, 00.5)
+        print('percentile_99_5 = %5.3f, percentile_00_5 = %5.3f' % (percentile_99_5, percentile_00_5))
 
 
 def list_to_csv(dct, csv_path):
@@ -285,7 +292,8 @@ def clip_array(array, rate=0.99, bins=256, side_bin=False):
     # return_array[array < low_bin] = low_bin
     # return_array[array > high_bin] = high_bin
     # if True:
-    #     print('low:{}, high:{}, zero:{}'.format(np.sum(array < low_bin), np.sum(array > high_bin), np.sum(array == 0)))
+    #     print('low:{}, high:{}, zero:{}'.format(np.sum(array < low_bin),
+    #                                             np.sum(array > high_bin), np.sum(array == 0)))
     if side_bin:
         return (low_bin, high_bin), return_array
     else:
@@ -293,18 +301,19 @@ def clip_array(array, rate=0.99, bins=256, side_bin=False):
 
 
 def cut_off_outliers(data, percentile_lower=0.2, percentile_upper=99.8, per_channel=False):
-    for b in range(len(data)):
-        if not per_channel:
-            cut_off_lower = np.percentile(data[b], percentile_lower)
-            cut_off_upper = np.percentile(data[b], percentile_upper)
-            data[b][data[b] < cut_off_lower] = cut_off_lower
-            data[b][data[b] > cut_off_upper] = cut_off_upper
-        else:
-            for c in range(data.shape[1]):
-                cut_off_lower = np.percentile(data[b, c], percentile_lower)
-                cut_off_upper = np.percentile(data[b, c], percentile_upper)
-                data[b, c][data[b, c] < cut_off_lower] = cut_off_lower
-                data[b, c][data[b, c] > cut_off_upper] = cut_off_upper
+    # data: CDHW
+    if not per_channel:
+        cut_off_lower = np.percentile(data, percentile_lower)
+        cut_off_upper = np.percentile(data, percentile_upper)
+        data[data < cut_off_lower] = cut_off_lower
+        data[data > cut_off_upper] = cut_off_upper
+    else:
+        for c in range(data.shape[0]):
+            cut_off_lower = np.percentile(data[c], percentile_lower)
+            cut_off_upper = np.percentile(data[c], percentile_upper)
+            data[c][data[c] < cut_off_lower] = cut_off_lower
+            data[c][data[c] > cut_off_upper] = cut_off_upper
+
     return data
 
 

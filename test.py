@@ -28,20 +28,19 @@ def test():
     opt_dict = get_config('configs/defaults/trus_unet3d_test.yaml')
     opt = SimpleNamespace(**opt_dict)
 
-    print(torch.cuda.is_available())
     init_torch(gpu_id=opt.visible_gpu, deterministic=opt.deterministic)
-    print(torch.cuda.is_available())
-    if opt.local_gpu >= 0 and torch.cuda.is_available():
-        torch.cuda.set_device(opt.local_gpu)
-        torch.cuda.empty_cache()
-    else:
-        opt.local_gpu = -1
 
     do_test(opt)
 
 
 def do_test(opt):
     print('now is in do_test')
+    if opt.local_gpu >= 0 and torch.cuda.is_available():
+        torch.cuda.set_device(opt.local_gpu)
+        torch.cuda.empty_cache()
+    else:
+        opt.local_gpu = -1
+
     log_dir = os.path.join(opt.results_dir, opt.name, opt.phase, opt.test_name)
     mkdirs(log_dir)
     opt_logger = get_logger(logname='opt_logger', is_save=not opt.DEBUG,

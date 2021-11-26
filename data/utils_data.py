@@ -1,5 +1,6 @@
 import os
 import h5py
+import pickle
 import numpy as np
 import nibabel as nib
 import SimpleITK as sitk
@@ -73,8 +74,20 @@ def save_nii(save_path, img_data, origin=None, direction=None, spacing=None):
     sitk.WriteImage(image, save_path)
 
 
+def load_pickle(file: str, mode: str = 'rb'):
+    with open(file, mode) as f:
+        a = pickle.load(f)
+    return a
+
+
+def write_pickle(obj, file: str, mode: str = 'wb') -> None:
+    with open(file, mode) as f:
+        pickle.dump(obj, f)
+
+
 # for slide windows and combine windows
 def get_full_length(w, c, s):
+    # simple claculate: (w-c)+s-(w-c)%s
     ''' get a length which more than w, and reduce c divide by s == 0 , (l-c)%s==0, l>=w
     :param w: length
     :param c: crop_size

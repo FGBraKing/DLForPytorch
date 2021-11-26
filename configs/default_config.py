@@ -49,6 +49,7 @@ _C.APEX_opt_level = 'O1'
 _C.dataroot = None
 _C.phase = None
 _C.serial_batches = None
+_C.data_shuffle = None
 _C.custom = None
 _C.preprocess = None
 _C.crop_size = None
@@ -65,6 +66,7 @@ _C.order_seg = 1
 # dataloader
 _C.num_threads = None
 _C.batch_size = None
+_C.drop_last = None
 _C.max_dataset_size = float('inf')
 # ---------------------------------------------------------------------------- #
 # module
@@ -89,7 +91,7 @@ _C.init_std = None
 # optimizer
 _C.optimizer_name = None
 _C.lr = None
-_C.weight_decay = None
+_C.weight_decay = 0.0
 _C.momentum = 0.9
 _C.beta1 = 0.9
 # scheduler

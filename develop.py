@@ -49,6 +49,8 @@ from horovod.runner.launch import run_commandline
 from utils.others.distributed_utils_horovod import reduce_mean, metric_average
 import torch.distributed.launch
 from utils.others.img_io import show_volume_label_predict
+import multiprocessing
+from multiprocessing import Process
 
 
 def print_visible(obj):
@@ -296,6 +298,89 @@ def main():
     pass
 
 
+def try_multiprocess():
+    info('main line')
+    p = Process(target=f, args=('bob',))
+    p.start()
+    p.join()
+
+
+def f(name):
+    info('function f')
+    print('hello', name)
+
+
+def info(title):
+    print(title)
+    print('module name:', __name__)
+    print('parent process:', os.getppid())
+    print('process id:', os.getpid())
+
+
+def isVaildsStr(S, L):
+    assert isinstance(S, str)
+    assert isinstance(L, str)
+    if len(S) > len(L):
+        return False
+    vaild_char = []
+    S_char = []
+    for c in S:
+        S_char.append(c)
+    for i in range(len(L)):
+        if S_char:
+            print(S_char)
+            if S_char[0] == L[i]:
+                vaild_char.append(i)
+                S_char.pop(0)
+        else:
+            print('vaild_char:', vaild_char)
+            return True
+    if S_char:
+        return False
+    else:
+        print('vaild_char:', vaild_char)
+        return True
+
+
+def combineWord(start, total, *args):
+    out_str = ''
+    args_len = []
+    args_list = []
+    for arg in args:
+        if isinstance(arg, str):
+            args_len.append(len(arg))
+            args_list.append(arg)
+    args_len = args_len[:total]
+    args_list = args_list[:total]
+    out_str += args_list[start]
+    args_len.pop(start)
+    args_list.pop(start)
+    for arg_l, arg in zip(args_len, args_list):
+        if arg[0] != out_str[0]:
+            args_len.remove(arg_l)
+            args_list.remove(arg)
+    max_len = max(args_len)
+    for arg_l, arg in zip(args_len, args_list):
+        if arg_l != max_len:
+            args_len.remove(arg_l)
+            args_list.remove(arg)
+    min_str = args_list[0]
+    for arg in args_list:
+        if arg < min_str:
+            min_str = arg
+    out_str += min_str
+    print(out_str)
+    return out_str
+
+
+def testfun(start, total, *args):
+    print('args type:', type(args))
+    ss='ace'
+    ll='abcde'
+    print(isVaildsStr(ss, ll))
+    combineWord(4,6,'word','dd','da','dc','dword','d')
+
+
 if __name__ == '__main__':
-    main()
+    try_multiprocess()
 

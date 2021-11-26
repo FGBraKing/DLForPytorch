@@ -56,11 +56,18 @@ def train():
 def do_train(opt):
     print('now is in do_train, if you are using DDP, please make sure that '
           'you had got (dist_backend, dist_url, world_size, rank, local_rank) ready')
+    print('CUDA_VISIBLE_DEVICES: '+os.environ['CUDA_VISIBLE_DEVICES'])
 
     # fig_list = [plt.figure(i) for i in range(40)]
 
     # 修补一个参数不能PicklingError的bug
     opt.random_state = np.random.RandomState(seed=opt.seed)
+
+    # print(torch.cuda.is_available())
+    # setup default cuda device, 配合tensor.cuda()使用
+    opt = set_local_gpu(opt)
+    print('local_gpu:{}'.format(opt.local_gpu))
+    # print('cuda is_available:', torch.distributed.is_available())
 
     if opt.DDP and torch.distributed.is_available():
         torch.distributed.init_process_group(backend=opt.dist_backend,
@@ -76,12 +83,6 @@ def do_train(opt):
         # 通过这一步把初始化后的rank等参数存入opt，统一不同框架的用法
         opt = record_distribute_ddp(opt)
 
-    # print(torch.cuda.is_available())
-    # setup default cuda device, 配合tensor.cuda()使用
-    opt = set_local_gpu(opt)
-    print('local_gpu:{}'.format(opt.local_gpu))
-    print('cuda is_available:', torch.distributed.is_available())
-    print(os.environ['CUDA_VISIBLE_DEVICES'])
     on_master = (not opt.DDP) or (opt.DDP and opt.rank == 0)
     init_seed(opt.seed + (opt.rank if opt.DDP else 0))
 
@@ -132,9 +133,10 @@ def do_train(opt):
         torch.distributed.barrier()
 
     if opt.use_gradient_accumulation:
-        if opt.gradient_accumulation_k_step is None or opt.gradient_accumulation_k_step > dataloader_size:
-            print('using gradient accumulation, and that you can not use apex now')
-            opt.gradient_accumulation_k_step = dataloader_size
+        print('using gradient accumulation, and that you can not use apex now')
+        if opt.gradient_accumulation_k_step > dataloader_size:
+            print('gradient_accumulation_k_step is too big, and is setted default of 1')
+            opt.gradient_accumulation_k_step = 1
     else:
         opt.gradient_accumulation_k_step = 1
 
@@ -143,8 +145,8 @@ def do_train(opt):
     total_iters = 0                # the total number of training iterations
     std_test_metrics_dice = 0.8
     now_test_metrics_dice = 0.0
-    best_test_metrics_dice = 0.8
-    best_test_metrics_epoch = 0
+    best_test_metrics_dice = 0.0
+    best_test_metrics_epoch = 0.0
     for epoch in range(opt.epoch_start, opt.num_epochs + 1):
         if epoch == 1 and opt.continue_train is False and opt.DDP is True:
             # 因为DDP封装时似乎会保证各进程状态相同，所以这个部分似乎可以不用，但用了也问题不大。
@@ -171,141 +173,118 @@ def do_train(opt):
         # torch.cuda.synchronize()
         time_logger.info('Time epoch prepare: %d sec' % (time.time() - epoch_start_time))
         # 训练一个epoch
+        epoch_iter = 0
+        iter_data_time = time.time()
+        for batch_idx, data in enumerate(dataloader, 1):
+            # torch.cuda.synchronize()
+            iter_start_time = time.time()
 
-        if opt.use_gradient_accumulation:
-            epoch_iter = 0
-            for batch_idx, data in enumerate(dataloader, 1):
-                total_iters += opt.batch_size
-                epoch_iter += opt.batch_size
+            total_iters += opt.batch_size
+            epoch_iter += opt.batch_size
 
-                model.set_input(data)
-                optimize_parameters(batch_idx % opt.gradient_accumulation_k_step == 0)
+            model.set_input(data)
+            optimize_parameters(batch_idx % opt.gradient_accumulation_k_step == 0)
 
-            model.compute_visuals()
-            model.compute_metrics()
-            visuals = model.get_current_visuals()
-            metrics = model.get_current_metrics()
-            losses = model.get_current_losses()
-            if on_master:
-                visualizer.print_current_losses(epoch, epoch_iter, losses, 0, 0)
-                visualizer.print_current_metrics(metrics, epoch, epoch_iter)
-                if opt.save_visuals:
-                    name = 'epoch-{}-epoch_iter-{}'.format(epoch, epoch_iter)
-                    visualizer.save_visuals(visuals, name)
-
-        else:
-            epoch_iter = 0
-            iter_data_time = time.time()
-            for batch_idx, data in enumerate(dataloader):
+            # 计算当前训练数据的metrics、losses、lrs， 使用visualizer绘图并打印
+            if total_iters % opt.print_freq == 0 or total_iters % opt.plot_freq == 0:
+                # 因为要reduce结果，所以全部进程都要进行计算
                 # torch.cuda.synchronize()
-                iter_start_time = time.time()
+                t_data = iter_start_time - iter_data_time
+                t_comp = (time.time() - iter_start_time) / opt.batch_size
 
-                total_iters += opt.batch_size
-                epoch_iter += opt.batch_size
+                model.compute_metrics()         # done reduce
+                metrics = model.get_current_metrics()      # done reduce
+                # print(str(metrics).replace('basic_metrics', 'tp fn tn fp'))
 
-                model.set_input(data)
-                optimize_parameters()
+                losses = model.get_current_losses()   # done reduce
 
-                # 计算当前训练数据的metrics、losses、lrs， 使用visualizer绘图并打印
-                if total_iters % opt.print_freq == 0 or total_iters % opt.plot_freq == 0:
-                    # 因为要reduce结果，所以全部进程都要进行计算
-                    # torch.cuda.synchronize()
-                    t_data = iter_start_time - iter_data_time
-                    t_comp = (time.time() - iter_start_time) / opt.batch_size
-
-                    model.compute_metrics()         # done reduce
-                    metrics = model.get_current_metrics()      # done reduce
-                    # print(str(metrics).replace('basic_metrics', 'tp fn tn fp'))
-
-                    losses = model.get_current_losses()   # done reduce
-
-                    if on_master:
-                        lrs = model.get_current_lrs()   # 学习率不需要reduce
-
-                        if total_iters % opt.print_freq == 0:
-                            visualizer.print_current_losses(epoch, epoch_iter, losses, t_comp, t_data)
-                            visualizer.print_current_metrics(metrics, epoch, epoch_iter)
-                            visualizer.add_hparams({'lr': lrs[0]}, dict(metrics),
-                                                   name=f'result on epoch{epoch}', global_step=total_iters)
-
-                        if total_iters % opt.plot_freq == 0:
-                            for lr_i, lr in enumerate(lrs):
-                                visualizer.plot_one_scalar(lr, total_iters, name=str(lr_i+1), tag='lrs')
-
-                            visualizer.plot_current_losses(epoch, float(epoch_iter)/dataset_size, losses, total_iters)
-                            # for key, value in losses.items():
-                            #     visualizer.plot_one_scalar(value, total_iters, key)
-                            for key, value in metrics.items():
-                                if isinstance(value, tuple):
-                                    metrics.pop(key)
-                            visualizer.plot_current_losses(epoch, float(epoch_iter)/dataset_size, metrics, total_iters,
-                                                           tag='metrics over time')
-
-                # 获取当前训练数据的预测结果，使用visualizer展示图片；依据iter保存checkpoint
                 if on_master:
-                    if total_iters % opt.display_freq == 0:
-                        # don't need to reduce
-                        model.compute_visuals()
-                        visuals = model.get_current_visuals()
-                        # ['predict', 'label']
-                        if opt.DEBUG and batch_idx == 1 and epoch == 1:
-                            pass
-                            # pprint(data['volume_path'])
-                            # volume = visuals['volume']
-                            # label = visuals['label']
-                            # predict = visuals['predict']
-                            # volume_name = os.path.basename(data['volume_path'][0]).split('.')[0]
-                            #
-                            # test_volume = volume[0, 0].clone().detach().cpu().numpy()
-                            # test_label = label[0, 0].clone().detach().cpu().numpy()
-                            # test_predict = predict[0, 0].clone().detach().cpu().numpy()
-                            #
-                            # print('{:*^100}'.format('volume'))
-                            # print_numpy(test_volume, shp=False)
-                            # # print('label')
-                            # print_numpy(test_label, shp=False)
-                            # # print('predict')
-                            # print_numpy(test_predict, shp=False)
-                            #
-                            # # show_volume_label(test_volume, test_label, row=4, col=4, title=f'one {volume_name}')
-                            # # show_volume_label(test_label, test_predict, row=4, col=4, title=f'two {volume_name}')
-                            # # , fix_num=True, max_num=8, fig_list=fig_list
+                    lrs = model.get_current_lrs()   # 学习率不需要reduce
 
-                        if opt.display_histogram:
-                            for name, image in visuals.items():
-                                visualizer.add_histogram(name, image, total_iters)
+                    if total_iters % opt.print_freq == 0:
+                        visualizer.print_current_losses(epoch, epoch_iter, losses, t_comp, t_data)
+                        visualizer.print_current_metrics(metrics, epoch, epoch_iter)
+                        visualizer.add_hparams({'lr': lrs[0]}, dict(metrics),
+                                               name=f'result on epoch{epoch}', global_step=total_iters)
 
-                        if opt.save_visuals:
-                            name = 'epoch-{}-epoch_iter-{}'.format(epoch, epoch_iter)
-                            visualizer.save_visuals(visuals, name)
+                    if total_iters % opt.plot_freq == 0:
+                        for lr_i, lr in enumerate(lrs):
+                            visualizer.plot_one_scalar(lr, total_iters, name=str(lr_i+1), tag='lrs')
 
-                        if opt.display_on_tensorboard:
-                            # visuals_refine = {}
-                            for name, image in visuals.items():
-                                if image.ndim == 5:  # N C D H W
-                                    N, C, D, H, W = image.shape
-                                    for c in range(C):
-                                        if opt.play_video:
-                                            visualizer.play_current_video(torch.unsqueeze(image[:, c], dim=2),
-                                                                          total_iters, tag=name+'video')
-                                        for d in range(D):
-                                            # visualizer.show_current_images_v2(name+f'N:{d} C{c}',image[:,c:c+1,d],total_iters)
-                                            for n in range(N):
-                                                visualizer.show_current_images({name+'N:{} C:{} D:{}'.format(n, c, d): image[n, c, d]}, total_iters)
-                            #                     visuals_refine[name+'N:{} C:{} D:{}'.format(n, c, d)] = image[n, c, d]
-                            #     else:
-                            #         visuals_refine[name] = image
-                            # visualizer.show_current_images(visuals_refine, total_iters)
+                        visualizer.plot_current_losses(epoch, float(epoch_iter)/dataset_size, losses, total_iters)
+                        # for key, value in losses.items():
+                        #     visualizer.plot_one_scalar(value, total_iters, key)
+                        for key, value in metrics.items():
+                            if isinstance(value, tuple):
+                                metrics.pop(key)
+                        visualizer.plot_current_losses(epoch, float(epoch_iter)/dataset_size, metrics, total_iters,
+                                                       tag='metrics over time')
 
-                    if total_iters > opt.save_iter_start and (total_iters-opt.save_iter_start) % opt.save_iter_freq == 0:
-                        ddp_logger.warning('saving the latest model (epoch %d, total_iters %d)' % (epoch, total_iters))
-                        save_suffix = 'iter_%d' % total_iters if opt.save_by_iter else 'latest'
-                        save_networks(save_suffix)
+            # 获取当前训练数据的预测结果，使用visualizer展示图片；依据iter保存checkpoint
+            if on_master:
+                if total_iters % opt.display_freq == 0:
+                    # don't need to reduce
+                    model.compute_visuals()
+                    visuals = model.get_current_visuals()
+                    # ['predict', 'label']
+                    if opt.DEBUG and batch_idx == 1 and epoch == 1:
+                        pass
+                        # pprint(data['volume_path'])
+                        # volume = visuals['volume']
+                        # label = visuals['label']
+                        # predict = visuals['predict']
+                        # volume_name = os.path.basename(data['volume_path'][0]).split('.')[0]
+                        #
+                        # test_volume = volume[0, 0].clone().detach().cpu().numpy()
+                        # test_label = label[0, 0].clone().detach().cpu().numpy()
+                        # test_predict = predict[0, 0].clone().detach().cpu().numpy()
+                        #
+                        # print('{:*^100}'.format('volume'))
+                        # print_numpy(test_volume, shp=False)
+                        # # print('label')
+                        # print_numpy(test_label, shp=False)
+                        # # print('predict')
+                        # print_numpy(test_predict, shp=False)
+                        #
+                        # # show_volume_label(test_volume, test_label, row=4, col=4, title=f'one {volume_name}')
+                        # # show_volume_label(test_label, test_predict, row=4, col=4, title=f'two {volume_name}')
+                        # # , fix_num=True, max_num=8, fig_list=fig_list
 
-                # 这里似乎并不需要同步
-                # if opt.DDP:
-                #     torch.distributed.barrier()
-                # torch.cuda.synchronize()
+                    if opt.display_histogram:
+                        for name, image in visuals.items():
+                            visualizer.add_histogram(name, image, total_iters)
+
+                    if opt.save_visuals:
+                        name = 'epoch-{}-epoch_iter-{}'.format(epoch, epoch_iter)
+                        visualizer.save_visuals(visuals, name)
+
+                    if opt.display_on_tensorboard:
+                        # visuals_refine = {}
+                        for name, image in visuals.items():
+                            if image.ndim == 5:  # N C D H W
+                                N, C, D, H, W = image.shape
+                                for c in range(C):
+                                    if opt.play_video:
+                                        visualizer.play_current_video(torch.unsqueeze(image[:, c], dim=2),
+                                                                      total_iters, tag=name+'video')
+                                    for d in range(D):
+                                        # visualizer.show_current_images_v2(name+f'N:{d} C{c}',image[:,c:c+1,d],total_iters)
+                                        for n in range(N):
+                                            visualizer.show_current_images({name+'N:{} C:{} D:{}'.format(n, c, d): image[n, c, d]}, total_iters)
+                        #                     visuals_refine[name+'N:{} C:{} D:{}'.format(n, c, d)] = image[n, c, d]
+                        #     else:
+                        #         visuals_refine[name] = image
+                        # visualizer.show_current_images(visuals_refine, total_iters)
+
+                if total_iters > opt.save_iter_start and (total_iters-opt.save_iter_start) % opt.save_iter_freq == 0:
+                    ddp_logger.warning('saving the latest model (epoch %d, total_iters %d)' % (epoch, total_iters))
+                    save_suffix = 'iter_%d' % total_iters if opt.save_by_iter else 'latest'
+                    save_networks(save_suffix)
+
+            # 这里似乎并不需要同步
+            # if opt.DDP:
+            #     torch.distributed.barrier()
+            # torch.cuda.synchronize()
                 iter_data_time = time.time()
 
         # torch.cuda.synchronize()

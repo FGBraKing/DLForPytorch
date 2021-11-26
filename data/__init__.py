@@ -115,9 +115,9 @@ class CustomDatasetDataLoader:
         sampler = torch.utils.data.distributed.DistributedSampler(self.dataset,
                                                                   num_replicas=opt.world_size,
                                                                   rank=opt.rank,
-                                                                  shuffle=not opt.serial_batches,
+                                                                  shuffle=opt.data_shuffle,
                                                                   seed=0,
-                                                                  drop_last=False) if opt.use_distribute_sample else None
+                                                                  drop_last=opt.drop_last) if opt.use_distribute_sample else None
         # torch.distributed.get_world_size()  torch.distributed.get_rank()
         # batch_sample = torch.utils.data.BatchSampler(sampler=sampler, batch_size=opt.batch_size, drop_last=False)
         # collate_fn = None
@@ -126,13 +126,13 @@ class CustomDatasetDataLoader:
         self.dataloader = torch.utils.data.DataLoader(
             self.dataset,
             batch_size=opt.batch_size,
-            shuffle=(sampler is None) and (not opt.serial_batches),
+            shuffle=(sampler is None) and opt.data_shuffle,
             sampler=sampler,        #
             batch_sampler=None,     #
             num_workers=int(opt.num_threads),
             collate_fn=None,        #
             pin_memory=True,
-            drop_last=False,        #
+            drop_last=opt.drop_last,        #
             prefetch_factor=2       #
         )
 

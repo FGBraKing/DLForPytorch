@@ -314,6 +314,37 @@ def init_net(net, init_type='normal', init_gain=0.02, gpu_ids=[]):
     return net
 
 
+def get_network_numpool(patch_size, maxpool_cap=999, min_feature_map_size=4):
+    network_numpool_per_axis = np.floor([np.log(i / min_feature_map_size) / np.log(2) for i in patch_size]).astype(int)
+    network_numpool_per_axis = [min(i, maxpool_cap) for i in network_numpool_per_axis]
+    return network_numpool_per_axis
+
+
+def get_shape_must_be_divisible_by(net_numpool_per_axis):
+    return 2 ** np.array(net_numpool_per_axis)
+
+
+def pad_shape(shape, must_be_divisible_by):
+    """
+    pads shape so that it is divisibly by must_be_divisible_by
+    :param shape:
+    :param must_be_divisible_by:
+    :return:
+    """
+    if not isinstance(must_be_divisible_by, (tuple, list, np.ndarray)):
+        must_be_divisible_by = [must_be_divisible_by] * len(shape)
+    else:
+        assert len(must_be_divisible_by) == len(shape)
+
+    new_shp = [shape[i] + must_be_divisible_by[i] - shape[i] % must_be_divisible_by[i] for i in range(len(shape))]
+
+    for i in range(len(shape)):
+        if shape[i] % must_be_divisible_by[i] == 0:
+            new_shp[i] -= must_be_divisible_by[i]
+    new_shp = np.array(new_shp).astype(int)
+    return new_shp
+
+
 # -------------------------------------------class-------------------------------------------------------
 class ArgMax(nn.Module):
 

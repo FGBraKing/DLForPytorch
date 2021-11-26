@@ -3,31 +3,43 @@
 #三级配置文件----第二级
 #提供特定的数据集和模型训练时所需要的参数，并提供一些不再改变的固定参数值
 #'''
+# ×××××××××××××××××××××以下是经常需要改动的参数×××××××××××××××××××××××××××××
+DDP : True
+SyncBatchNorm : True
+world_size : 4
+batch_size : 5
 
+optimizer_name : 'adam'
+lr : 2e-4
+lr_policy : 'step'
+decay_epochs : 25
+decay_rate : 0.2
+warmup_lr : 1e-4
+warmup_epochs : 10
+visible_gpu : !!str "'0,''1,''2,''3'"
+# '0,''1,''2,''3'
+test_batchsize : 2
 # ---------------------------------------------------------------------------- #
 # basic
 # ---------------------------------------------------------------------------- #
-name : 'trus_unet3d_DDP_SynBN_gdacc2_crop128_bs3x4_ch32_kaiming_dc_adam_4e-4_step_0.25_warmup_10_1e-6'
+name : 'trus_unet3d_DDP_Sybn_crop128_bs5x4_ch32_kaiming_dc_adam_2e-4_step_0.2_warmup_10_1e-4'
+# 'trus_unet3d_DDP_SynBN_gdacc2_crop128_bs3x4_ch32_kaiming_dc_adam_4e-4_step_0.25_warmup_10_1e-5'
 # 规则：数据集名+网络名+训练策略+数据集参数+网络参数+学习率策略
 # 训练策略： DDP/DP、SyncBatchNorm、use_mixed_precision、use_gradient_accumulation、APEX
 dataset_name : 'trus'
 model_name : 'unet3d'
 gpu_ids : [0, 1, 2, 3, 4, 5, 6, 7]
-visible_gpu : !!str "'0,''1,''2,''3'"
-# '0,''1,''2,''3'
+
 DEBUG : False
 deterministic : True
 # ---------------------------------------------------------------------------- #
 # tricks
 # ---------------------------------------------------------------------------- #
 use_mixed_precision : False
-use_gradient_accumulation : True
-gradient_accumulation_k_step : 2
+use_gradient_accumulation : False
+gradient_accumulation_k_step : 1
 # DDP
 DP : False
-DDP : True
-SyncBatchNorm : True
-world_size : 4
 rank : 0
 local_rank : -1
 dist_url : 'tcp://127.0.0.1:52000'
@@ -43,6 +55,7 @@ APEX_opt_level : 'O1'
 dataroot : './traces/datasets/prostate_daf3d_pre'
 phase : 'train'
 serial_batches : true
+data_shuffle : true
 custom : true
 preprocess : 'randomscale_randomcrop_ranomrotate_centercrop_rot90_mirror_gaussianNoise_GaussianBlur_BrightnessMultiplicative_contrast_simulate_gammatransform'
 crop_size : [128, 128, 128]
@@ -50,14 +63,33 @@ target_size : [128, 128, 128]
 scale : [1., 1., 1.]
 bright_mu : 0.1
 bright_sigma : 0.5
-elastic_alpha : [0., 1000]
-elastic_sigma : [10., 13.]
+elastic_alpha : [0., 900]
+elastic_sigma : [9., 13.]
 shift_mu : [0., 1000]
 shift_sigma : [10., 13.]
+# -----------------default_3D_augmentation_params in nnunet------------------tmp parameter  start
+p_eldef: 0.2
+do_scaling: True
+scale_range: (0.85, 1.25)
+independent_scale_factor_for_each_axis: False
+p_independent_scale_per_axis: 1
+p_scale: 0.2
+
+do_rotation: True
+rotation_p_per_axis: 1
+p_rot: 0.2
+rotation_x: (-15. / 360 * 2. * np.pi, 15. / 360 * 2. * np.pi)
+do_gamma: True
+gamma_retain_stats: True
+gamma_range:  (0.7, 1.5)
+p_gamma: 0.3
+do_mirror: True
+mirror_axes: (0,1,2)
+# -----------------default_3D_augmentation_params in nnunet------------------tmp parameter  end
 
 # dataloader
-num_threads : 8
-batch_size : 3
+num_threads : 24
+drop_last : False
 # ---------------------------------------------------------------------------- #
 # module
 # ---------------------------------------------------------------------------- #
@@ -80,15 +112,9 @@ init_std : 0.02
 # optimizer
 # ---------------------------------------------------------------------------- #
 # optimizer
-optimizer_name : adam
-lr : 4e-4
-weight_decay : 0
+
+weight_decay : 0.0
 # scheduler
-lr_policy : 'step'
-decay_epochs : 25
-decay_rate : 0.25
-warmup_lr : 1e-6
-warmup_epochs : 10
 lr_noise : ~
 # ---------------------------------------------------------------------------- #
 # model
@@ -100,7 +126,7 @@ verbose : false
 # additional
 suffix : ''
 epoch_start : 1
-num_epochs : 100
+num_epochs : 80
 isTrain : True
 
 # ---------------------------------------------------------------------------- #
@@ -118,7 +144,7 @@ print_freq : 1
 plot_freq : 1
 
 val_epoch_freq : 1
-test_on_train : True
+test_on_train : true
 
 # visualer
 with_tensorboard : False
@@ -132,7 +158,7 @@ eval : True
 test_data_phase : 'test'
 test_preprocess : 'resize'
 # resize centercrop
-test_batchsize : 4
+
 test_scale : [0.8, 0.8, 0.8]
 
 

@@ -22,7 +22,7 @@ def get_config(config):
     with open(config, 'r') as stream:
         loader = yaml.FullLoader(stream)
         out = loader.get_single_data()
-        out1 = yaml.load(stream)
+        # out1 = yaml.load(stream)
         return out
 
 

@@ -10,6 +10,39 @@ import pandas as pd
 # from .img_io import plot_2d
 
 
+def find_best_result(root_dir=r'./traces/results', root_key=None):
+    best_dc = 0.8
+    best_weight = None
+    for root, dirs, files in os.walk(root_dir):
+        if root_key is not None:
+            if root_key not in root:
+                continue
+        for file in files:
+            if file == 'option.txt':
+                file_path = os.path.join(root, file)
+                with open(file_path) as info_file:
+                    lines = info_file.readlines()
+                    cur_dc_info = lines[-2]
+                    cur_weight_info = lines[-1]
+                    if 'dice' not in cur_dc_info:
+                        continue
+                    dc = float(cur_dc_info.strip().split(':')[-1])
+                    # weight = cur_weight_info.strip().split(':')[-1]
+                    weight = file_path
+                    if best_dc < dc:
+                        best_dc = dc
+                        best_weight = weight
+                    elif best_dc == dc:
+                        if best_weight is None:
+                            best_weight = weight
+                        elif isinstance(best_weight, list):
+                            best_weight.append(weight)
+                        else:
+                            best_weight = [best_weight].append(weight)
+    print(f'best_dc: {best_dc}\n'
+          f'best_weight:{best_weight}')
+
+
 def find_best_dice(logs_dir=None, pat=r"^number(?:.*\s)+(?:total.*\s).*?dice.*?(\d\.\d+).*"):
     # '^number(?:.*\s)+(?:total.*\s)dice.*?(\d\.\d+).*'
 
@@ -63,7 +96,7 @@ def extract_loss(loss_file, pat=r'^\(epoch.*\).*?(({}):\s+?(\d+\.\d+))', loss_na
 def extract_metrics(resolving_file, dividually=False):
     # visual_names=('DC', 'recall', 'precision', 'accuracy'),
     vaild_pat = re.compile(r'^\((.*)\)\s*?(.*)\s*$')
-    dict_pat = re.compile(r'(\w+):\s*(\d+(?:\.\d+)?)')
+    dict_pat = re.compile(r'(\w+):\s*([+-]?\d+(?:\.\d+)?)')
 
     info_dict_list = []
     meta_keys = None
@@ -121,7 +154,11 @@ if __name__ == '__main__':
                 r'trus_unet3d_DDP_SynBN_crop128_bs3x4_ch32_dc_adam_1e-4/loss_log.txt'
     # extract_loss(loss_file)
 
-    metrics_file = r'/home/lf/raid_lf/PROJECT/DLForPytorch/traces/' \
-                   r'logs/trus_unet3d_DDP_SynBN_crop128_bs3x4_ch32_dc_adam_1e-4/metrics_log.txt'
+    metrics_file = r'/home/lf/raid_lf/PROJECT/DLForPytorch/traces/logs/trus_unet3d_DDP_Sybn_crop' \
+                   r'128_bs5x4_ch32_kaiming_dc_adam_2e-4_step_0.2_warmup_10_1e-4_only20data/test_metrics_log.txt'
 
-    data_df = extract_metrics(metrics_file, dividually=True)
+    # r'/home/lf/raid_lf/PROJECT/DLForPytorch/traces/' \
+    # r'logs/trus_unet3d_DDP_SynBN_crop128_bs3x4_ch32_dc_adam_1e-4/test_metrics_log.txt'
+
+    data_df = extract_metrics(metrics_file, dividually=False)
+    # find_best_result(root_key='train')

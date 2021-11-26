@@ -19,7 +19,7 @@ from batchgenerators.augmentations.crop_and_pad_augmentations import pad_nd_imag
 # ----------------------------------------- CUSTOM TRANSFORM ------------------------------------------------------
 # --------------------spatial transforms
 class ZoomTransform:
-    def __init__(self, zoom_factors=1, order=3, order_seg=1, cval_seg=0, with_channel=False):
+    def __init__(self, zoom_factors=1, order=3, order_seg=1, with_channel=False):
         """
         Zooms 'data' (and 'seg') by zoom_factors
         :param zoom_factors: int or list/tuple of int
@@ -29,7 +29,7 @@ class ZoomTransform:
         :param seg: can be None, if not None then it will also be zoomed by zoom_factors. Can also be list/tuple of
         np.ndarray (just like data). Must also be (b, c, x, y(, z))
         """
-        self.cval_seg = cval_seg
+        # self.cval_seg = cval_seg
         self.order_seg = order_seg
         self.order = order
         self.zoom_factors = zoom_factors
@@ -44,12 +44,14 @@ class ZoomTransform:
         :return:
         '''
         if self.with_channel:
-            data, seg = augment_zoom(data, seg, self.zoom_factors, self.order, self.order_seg, self.cval_seg)
+            data, seg = augment_zoom(data, seg, self.zoom_factors, self.order, self.order_seg)
+            # , self.cval_seg
         else:
             data = np.expand_dims(data, axis=0)
             seg = np.expand_dims(seg, axis=0) if seg is not None else seg
 
-            data, seg = augment_zoom(data, seg, self.zoom_factors, self.order, self.order_seg, self.cval_seg)
+            data, seg = augment_zoom(data, seg, self.zoom_factors, self.order, self.order_seg)
+            # , self.cval_seg
 
             data = np.squeeze(data, axis=0)
             seg = np.squeeze(seg, axis=0) if seg is not None else seg
@@ -90,7 +92,7 @@ class Rot90Transform:
 
 class ResizeTransform:
 
-    def __init__(self, target_size, order=3, order_seg=1, cval_seg=0, with_channel=False):
+    def __init__(self, target_size, order=3, order_seg=1, with_channel=False):
         """
         Reshapes 'data' (and 'seg') to target_size
         :param target_size: int or list/tuple of int
@@ -101,7 +103,7 @@ class ResizeTransform:
         np.ndarray (just like data). Must also be (b, c, x, y(, z))
 
         """
-        self.cval_seg = cval_seg
+        # self.cval_seg = cval_seg
         self.order_seg = order_seg
         self.order = order
         self.target_size = target_size
@@ -110,12 +112,14 @@ class ResizeTransform:
     def __call__(self, data, seg=None, *args, **kwargs):
 
         if self.with_channel:
-            data, seg = augment_resize(data, seg, self.target_size, self.order, self.order_seg, self.cval_seg)
+            data, seg = augment_resize(data, seg, self.target_size, self.order, self.order_seg)
+            # , self.cval_seg
         else:
             data = np.expand_dims(data, axis=0)
             seg = np.expand_dims(seg, axis=0) if seg is not None else seg
 
-            data, seg = augment_resize(data, seg, self.target_size, self.order, self.order_seg, self.cval_seg)
+            data, seg = augment_resize(data, seg, self.target_size, self.order, self.order_seg)
+            # , self.cval_seg
 
             data = np.squeeze(data, axis=0)
             seg = np.squeeze(seg, axis=0) if seg is not None else seg
@@ -541,13 +545,13 @@ class ElasticDeformTransform:
 
 
 class RandomScaleTransform:
-    def __init__(self,  random_state, order_data=3, order_seg=0, scale=(0.75, 1.25), cval_seg=0,
+    def __init__(self,  random_state, order_data=3, order_seg=0, scale=(0.75, 1.25),
                  p_scale_per_sample=1, p_independent_scale_per_axis=1,
                  independent_scale_for_each_axis=False, with_channel=False):
         self.random_state = random_state
         self.order_data = order_data
         self.order_seg = order_seg
-        self.cval_seg = cval_seg
+        # self.cval_seg = cval_seg
         self.p_scale_per_sample = p_scale_per_sample
         self.p_independent_scale_per_axis = p_independent_scale_per_axis
         self.independent_scale_for_each_axis = independent_scale_for_each_axis
@@ -581,12 +585,14 @@ class RandomScaleTransform:
                     sc = np.random.uniform(max(self.scale[0], 1), self.scale[1])
 
             if self.with_channel:
-                data, seg = augment_zoom(data, seg, sc, self.order_data, self.order_seg, self.cval_seg)
+                data, seg = augment_zoom(data, seg, sc, self.order_data, self.order_seg)
+                # , self.cval_seg
             else:
                 data = np.expand_dims(data, axis=0)
                 seg = np.expand_dims(seg, axis=0) if seg is not None else seg
 
-                data, seg = augment_zoom(data, seg, sc, self.order_data, self.order_seg, self.cval_seg)
+                data, seg = augment_zoom(data, seg, sc, self.order_data, self.order_seg)
+                # , self.cval_seg
 
                 data = np.squeeze(data, axis=0)
                 seg = np.squeeze(seg, axis=0) if seg is not None else seg

@@ -4,6 +4,8 @@ import SimpleITK as sitk
 
 from skimage import io
 from typing import Tuple, List, Union
+import shutil
+from batchgenerators.utilities.file_and_folder_operations import join
 
 
 def convert_2d_image_to_nifti(input_filename: str, output_filename_truncated: str, spacing=(999, 1, 1),
@@ -114,3 +116,30 @@ def convert_3d_segmentation_nifti_to_tiff(nifti_file: str, output_filename: str,
         img = transform(img)
 
     tifffile.imsave(output_filename, img.astype(export_dtype))
+
+
+def split_4d_nifti(filename, output_folder):
+    img_itk = sitk.ReadImage(filename)
+    dim = img_itk.GetDimension()
+    file_base = filename.split("/")[-1]
+    if dim == 3:
+        shutil.copy(filename, join(output_folder, file_base[:-7] + "_0000.nii.gz"))
+        return
+    elif dim != 4:
+        raise RuntimeError("Unexpected dimensionality: %d of file %s, cannot split" % (dim, filename))
+    else:
+        img_npy = sitk.GetArrayFromImage(img_itk)
+        spacing = img_itk.GetSpacing()
+        origin = img_itk.GetOrigin()
+        direction = np.array(img_itk.GetDirection()).reshape(4,4)
+        # now modify these to remove the fourth dimension
+        spacing = tuple(list(spacing[:-1]))
+        origin = tuple(list(origin[:-1]))
+        direction = tuple(direction[:-1, :-1].reshape(-1))
+        for i, t in enumerate(range(img_npy.shape[0])):
+            img = img_npy[t]
+            img_itk_new = sitk.GetImageFromArray(img)
+            img_itk_new.SetSpacing(spacing)
+            img_itk_new.SetOrigin(origin)
+            img_itk_new.SetDirection(direction)
+            sitk.WriteImage(img_itk_new, join(output_folder, file_base[:-7] + "_%04.0d.nii.gz" % i))

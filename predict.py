@@ -26,17 +26,19 @@ def main_predict():
     print(torch.cuda.is_available())
     init_torch(gpu_id=opt.visible_gpu, deterministic=opt.deterministic)
     print(torch.cuda.is_available())
-    if opt.local_gpu >= 0 and torch.cuda.is_available():
-        torch.cuda.set_device(opt.local_gpu)
-        torch.cuda.empty_cache()
-    else:
-        opt.local_gpu = -1
 
     do_predict(opt)
 
 
 def do_predict(opt):
     print('now is in do_predict')
+
+    if opt.local_gpu >= 0 and torch.cuda.is_available():
+        torch.cuda.set_device(opt.local_gpu)
+        torch.cuda.empty_cache()
+    else:
+        opt.local_gpu = -1
+
     # binary_metrics = BinaryMetrics()
     # multi_metrics = MutiClassMetrics()
     log_dir = os.path.join(opt.results_dir, opt.name, opt.phase, opt.predict_name)

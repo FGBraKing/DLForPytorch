@@ -104,6 +104,10 @@ def create_scheduler(args, optimizer):
     return lr_scheduler, num_epochs
 
 
+def poly_lr(epoch, max_epochs, initial_lr, exponent=0.9):
+    return initial_lr * (1 - epoch / max_epochs)**exponent
+
+
 # class PolyLR(object):
 #     # lr_decay=0.9
 #     def __init__(self, optimizer, curr_iter, max_iter, lr_decay):
