@@ -21,6 +21,7 @@ class PlateauLRScheduler(Scheduler):
                  cooldown_t=0,
                  warmup_t=0,
                  warmup_lr_init=0,
+                 warmup_prefix=False,
                  lr_min=0,
                  mode='max',
                  noise_range_t=None,
@@ -50,6 +51,7 @@ class PlateauLRScheduler(Scheduler):
         self.noise_seed = noise_seed if noise_seed is not None else 42
         self.warmup_t = warmup_t
         self.warmup_lr_init = warmup_lr_init
+        self.warmup_prefix = warmup_prefix
         if self.warmup_t:
             self.warmup_steps = [(v - warmup_lr_init) / self.warmup_t for v in self.base_values]
             super().update_groups(self.warmup_lr_init)

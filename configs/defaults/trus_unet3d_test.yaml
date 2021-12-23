@@ -2,19 +2,20 @@
 # ---------------------------------------------------------------------------- #
 # basic
 # ---------------------------------------------------------------------------- #
-name : 'trus_unet3d_DDP_Sybn_crop128_bs1x8_ch32_kaiming_dc_adam_1e-4_step_0.2_warmup_10_1e-5'
+name : 'trus_unet3d_DDP_Sybn_crop128_bs3x4_ch32_kaiming_dc_adam_1.35e-4_step_0.2_warmup_10_5e-5'
 dataset_name : 'trus'
 model_name : 'unet3d'
-test_name : 'crop128_slide32_nopad_noaug'
-visible_gpu : !!str "'0,''1,''2,''3,''4,''5,''6,''7'"
-local_gpu : 7
-gpu_ids : [0,1]
+test_name : 'crop128_slide24_nopad_noaug'
+visible_gpu : '0,1,2,3'
+# '0,''1,''2,''3,''4,''5,''6,''7'    "'0,1,2,3'"
+gpu_ids : [2, 3]
 phase_list : ['test', 'val']
 DEBUG : False
 deterministic : True
 
+local_gpu : 3
 phase : 'val'
-batch_size : 2
+batch_size : 8
 no_augment : True
 compute_pad : False
 save_visuals : False
@@ -23,7 +24,8 @@ save_visuals : False
 # ---------------------------------------------------------------------------- #
 weight_path : './traces/checkpoints/trus_unet3d_DDP_Sybn_crop128_bs1x8_ch32_kaiming_dc_adam_1e-4_step_0.2_warmup_10_1e-5/65_net_trus_unet3d_DDP_SynBN_crop128_bs3x4_ch32_dc_adam_1e-4.pth'
 verbose : false
-weight_dir  : './traces/checkpoints/trus_unet3d_DDP_Sybn_crop128_bs1x8_ch32_kaiming_dc_adam_1e-4_step_0.2_warmup_10_1e-5'
+weight_dir  : './traces/checkpoints/trus_unet3d_DDP_Sybn_crop128_bs3x4_ch32_kaiming_dc_adam_1.35e-4_step_0.2_warmup_10_5e-5'
+
 weight_on_dir : True
 
 logs_dir : './traces/logs'
@@ -34,13 +36,13 @@ results_dir : './traces/results'
 dataroot : './traces/datasets/prostate_daf3d_pre'
 crop_size : [128, 128, 128]
 target_size : [128, 128, 128]
-stride : [32, 32, 32]
+stride : [24, 24, 24]
 
 
 
 
 # dataloader
-num_threads : 8
+num_threads : 16
 
 
 # ---------------------------------------------------------------------------- #
@@ -57,7 +59,7 @@ conv_order : 'crb'
 # test
 # ---------------------------------------------------------------------------- #
 eval : True
-metric_names : ['dice', 'recall', 'precision', 'accuracy']
+metric_names : ['dice', 'recall', 'precision', 'specificity', 'accuracy']
 visual_names : ['segment', 'label', 'pad_volume']
 
 

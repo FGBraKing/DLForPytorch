@@ -2,18 +2,19 @@
 # ---------------------------------------------------------------------------- #
 # basic
 # ---------------------------------------------------------------------------- #
-name : 'trus_unet3d_DDP_Sybn_crop128_bs1x8_ch32_kaiming_dc_adam_1e-4_step_0.2_warmup_10_1e-5'
+name : 'trus_unet3d_DDP_Sybn_crop128_bs4x3_ch32_kaiming_dc_adam_1.35e-4_step_0.2_warmup_10_5e-5'
 dataset_name : 'trus'
 model_name : 'unet3d'
 predict_name : 'resize128_revert'
-visible_gpu : !!str "'0,''1,''2,''3,''4,''5,''6,''7'"
-local_gpu : 0
+visible_gpu :  '0,1,2,3'
+# !!str "'0,''1,''2,''3,''4,''5,''6,''7'"
+local_gpu : 3
 gpu_ids : [0,1]
 phase_list : ['test', 'val']
 DEBUG : False
 deterministic : True
 
-phase : 'train'
+phase : 'val'
 revert : True
 save_visuals : False
 # ---------------------------------------------------------------------------- #
@@ -21,7 +22,7 @@ save_visuals : False
 # ---------------------------------------------------------------------------- #
 weight_path : './traces/checkpoints/trus_unet3d_DDP_SynBN_crop12_bs4_ch32_dc_adam_1e-4/latest_net_trus_unet3d_DDP_SynBN_crop12_bs4_ch32_dc_adam_1e-4.pth'
 verbose : false
-weight_dir : './traces/checkpoints/trus_unet3d_DDP_Sybn_crop128_bs1x8_ch32_kaiming_dc_adam_1e-4_step_0.2_warmup_10_1e-5'
+weight_dir : './traces/checkpoints/trus_unet3d_DDP_Sybn_crop128_bs4x3_ch32_kaiming_dc_adam_1.35e-4_step_0.2_warmup_10_5e-5'
 weight_on_dir : True
 
 
@@ -63,7 +64,7 @@ conv_order : 'crb'
 # test
 # ---------------------------------------------------------------------------- #
 eval : True
-metric_names : ['basic_metrics', 'dice', 'recall', 'precision', 'accuracy']
+metric_names : ['basic_metrics', 'dice', 'recall', 'precision', 'specificity', 'accuracy']
 visual_names : ['segment', 'label', 'volume']
 
 

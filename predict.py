@@ -10,7 +10,11 @@ from tensorboardX import SummaryWriter
 from torch.utils.data import DataLoader
 from skimage.transform import resize, rescale
 from data.dataloads.base_dataset import BaseDataset, TestOnePatientDataset
-from models.modules.segmentation.three_d.unet3d_gn import UNet3D
+# from models.modules.segmentation.three_d.unet3d_V0 import UNet3D
+from models.modules.segmentation.three_d.unet3d_V0 import UNet3D as UNetV0
+from models.modules.segmentation.three_d.unet3d_V1 import UNet3D as UNetV1
+from models.modules.segmentation.three_d.unet3d_V2 import UNet3D as UNetV2
+from models.modules.segmentation.three_d.unet3d_V3 import UNet3D as UNetV3
 from configs.utils_config import pretty_print_opt, get_pretty_opt, get_config
 from utils.forLogs import get_logger
 from utils.others.metrics import BinaryMetrics, MutiClassMetrics
@@ -20,7 +24,8 @@ from utils.others.img_io import show_paired_image, show_array_3d, show_volume_la
 
 def main_predict():
     # opt = get_opt(args=['--config_path=configs/defaults/trus_unet3d_test.yaml', '--use_config'], save_log=False)
-    opt_dict = get_config('configs/defaults/trus_unet3d_predict.yaml')
+    # opt_dict = get_config('configs/defaults/trus_unet3d_predict.yaml')
+    opt_dict = get_config('configs/defaults/promise_unet3d_predict.yaml')
     opt = SimpleNamespace(**opt_dict)
 
     print(torch.cuda.is_available())
@@ -74,7 +79,7 @@ def do_predict(opt):
     print('test_dataloader:{}'.format(len(test_dataloader)))
 
     test_network = define_net(opt)
-    best_dice = 0.8
+    best_dice = 0.5
     best_weight = weight_paths[0]
     for weight_path in weight_paths:
         test_network = load_weithts(test_network, weight_path, device, name='segment')
@@ -91,10 +96,16 @@ def do_predict(opt):
         all_result_metrics = []
         all_result_visuals = []
         for patient_id, data in enumerate(test_dataloader):
+            volume_name = os.path.basename(data['volume_path'][0]).split('.')[0]
             test_data = data['volume'].cuda()
 
+            # show_volume_label(data['volume'].cpu().numpy()[0, 0],
+            #                   data['label'].cpu().numpy()[0, 0],
+            #                   row=4, col=4, title=f'predict paired {patient_id}')
+
             with torch.no_grad():
-                test_result = test_network(test_data)       # NCDHW, N=1, C=1
+                test_result = test_network(test_data)
+                test_result = torch.sigmoid(test_result)  # NCDHW, N=1, C=1
             test_result_mask = torch.where(test_result > 0.5, 1, 0)
 
             segment = test_result_mask.cpu().numpy()[0, 0]
@@ -114,8 +125,8 @@ def do_predict(opt):
             metrics = compute_metrics_by_patient(segment, label, *opt.metric_names,
                                                  get_metrics=get_metrics, need_key=True)
             visual = compute_visual_by_patient(segment, label, *opt.visual_names, volume=volume)
-            show_result_by_patient(opt, patient_id, metrics=metrics, visual=visual, message_logger=message_logger,
-                                   vis_name=checkpoint_name+f'id-{patient_id}')
+            show_result_by_patient(opt, patient_id, metrics=metrics, visuals=visual, message_logger=message_logger,
+                                   vis_name=checkpoint_name[:6]+volume_name)
             all_result_metrics.append(metrics)
             all_result_visuals.append(visual)
 
@@ -153,11 +164,14 @@ def create_predict_dataset(dataset_name):
 
 
 def define_net(opt):
-    net = UNet3D(in_channels=opt.input_nc,
-                 out_channels=opt.output_nc,
-                 final_sigmoid=True,
-                 conv_layer_order=opt.conv_order,
-                 init_channel_number=opt.init_channel_number)
+
+    # net = UNet3D(in_channels=opt.input_nc,
+    #              out_channels=opt.output_nc,
+    #              final_sigmoid=True,
+    #              conv_layer_order=opt.conv_order,
+    #              init_channel_number=opt.init_channel_number)
+    net = UNetV1(in_channels=opt.input_nc, out_channels=opt.output_nc, init_features=opt.init_channel_number)  # cbr
+
     net = net.cuda()
 
     if opt.verbose:
@@ -249,7 +263,7 @@ def show_result_by_patient(opt, *args, metrics=None, visuals=None, **kwargs):
     if opt.save_visuals:
         assert 'vis_name' in kwargs.keys(), 'you have to apply vis_name'
         vis_name = kwargs['vis_name']
-        save_name = os.path.join(opt.results_dir, opt.name, opt.phase, opt.test_name, vis_name+'.h5')
+        save_name = os.path.join(opt.results_dir, opt.name, opt.phase, opt.predict_name, vis_name+'.h5')
         with h5py.File(save_name, mode='w') as fw:
             for name, image in visuals.items():
                 image = image.clone().detach().cpu().numpy() if isinstance(image, torch.Tensor) else image

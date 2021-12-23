@@ -3,7 +3,7 @@ import argparse
 from torch.utils import data
 from collections import OrderedDict
 
-from models.modules.segmentation.three_d.unet3d_gn import UNet3D
+from models.modules.segmentation.three_d.unet3d_V0 import UNet3D
 from utils.others.utils import convert_str_to_list
 from utils.others.metrics import BinaryMetrics
 from data.utils_data import combine_all_masks, get_unpad_image

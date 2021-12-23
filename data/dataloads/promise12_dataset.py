@@ -1,45 +1,102 @@
 import os
 import re
-import h5py
-import torch
-import random
 import argparse
 import numpy as np
-import torch.utils.data
-
-from data.utils_data import nii_loader, h5_loader
-from data.transforms import get_transform, get_pre_transform, get_post_transform
-from data.dataloads.base_dataset import BaseDataset, CustomDataset
-from data.transforms.transformOnArray import Normalize
-from data.transforms.transformOnSample import random_scale, agent_resize
+from pprint import pprint
+from data.utils_data import nii_loader
+from data.dataloads.base_dataset import BaseDataset, CustomDataset, NIIDataset
+from data.transforms.transformOnArray import get_transform, get_pre_transform, get_post_transform, ToTensor
+from configs.utils_config import get_pretty_opt
 from utils.others.utils import print_numpy, clip_array, slim_array, convert_str_to_list
 from utils.others.img_io import show_array_3d, show_volume_label, show_array_histogram, show_pired_histogram
+# from batchgenerators.augmentations.crop_and_pad_augmentations import pad_nd_image_and_seg, crop
+from utils.others.utils import Timer
+import time
 
 
-def get_promise_path(dataroot, data_phase):
-    # ------  Old version use nii
-    # # if istrain:
-    # #     A_root = os.path.join(dataroot, 'trainA')
-    # #     B_root = os.path.join(dataroot, 'trainB')
-    # # else:
-    # #     A_root = os.path.join(dataroot, 'testA')
-    # #     B_root = os.path.join(dataroot, 'testB')
-    # root = os.path.join(dataroot, data_phase)
-    # volume_paths = [os.path.join(root, name) for name in os.listdir(root) if 'itk_image' in name]
-    # # label_paths = [name.replace('image', 'label') for name in volume_paths]
-    # # return volume_paths, label_paths
-    # return [{'volume': path, 'label': path.replace('image', 'label')} for path in volume_paths]
-    # -----New version use h5
+def get_data_path(dataroot, data_phase):
     root = os.path.join(dataroot, data_phase)
-    return [os.path.join(root, name) for name in os.listdir(root) if name.endswith('h5')]
+    return [{'volume': os.path.join(root, name.replace('label', 'image')), 'label': os.path.join(root, name)}
+            for name in os.listdir(root) if 'label' in name]
 
 
-class Promise12Dataset(CustomDataset):
-    def __init__(self, opt, loader=h5_loader):
-        # save the option and dataset root
+class Promise12Dataset(NIIDataset):
+    def __init__(self, opt):
         super(Promise12Dataset, self).__init__(opt)
-        # get the image paths of your dataset;
-        self.paths = get_promise_path(opt.dataroot, opt.phase)
+        self.paths = get_data_path(opt.dataroot, opt.phase)
+        self.data_size = len(self.paths)
+
+        self.pre_transform = get_pre_transform(opt)
+        self.transform = get_transform(opt)
+        self.post_transform = get_post_transform(opt)
+        self.to_tensor = ToTensor(expand_dims=True)
+
+    def __getitem__(self, index):
+
+        index_used = self._get_used_index(index)
+
+        volume_path = self.paths[index_used]['volume']
+        label_path = self.paths[index_used]['label']
+        volume = self.loader(volume_path)   # DHW, zyx
+        label = self.loader(label_path)
+        # 进行形状变换前的对volume进行的一些特殊处理,目前为空
+        volume = self._apply_pre_transform(volume)
+        # 同时对volume和label进行的一些处理，主要包括，旋转、放缩、剪切，镜像，通道变换等
+        #
+        volume, label = self._apply_transform(volume, label)
+        # 单独对volume做的一些处理，主要包括亮度、对比度、噪声变换等
+        volume = self._apply_post_transform(volume)
+
+        # volume, label = crop(volume, label, self.opt.crop_size[::-1], crop_type='center')
+
+        volume = self.to_tensor(volume)
+        label = self.to_tensor(label)
+
+        return {'volume': volume, 'label': label, 'volume_path': volume_path, 'label_path': label_path}
+
+    def custom_debug(self, *args, **kwargs):
+        print(f'data_size:{self.data_size}')
+        for index in range(self.data_size):
+            if index < 10:
+                tt = self.__getitem__(index)
+                print(tt['volume_path'])
+                # print(tt['volume'].shape)
+                # print(type(tt['volume']))
+                data = tt['volume'].cpu().numpy()
+                label = tt['label'].cpu().numpy()
+                print(type(label), label.shape)
+                print(type(data), data.shape)
+                title = os.path.basename(tt['volume_path']).split('.')[0]
+                print_numpy(data, shp=True, percentile=True)
+                # show_array_3d(data[0, ...], 4, 4)
+                show_volume_label(data[0, ...], label[0, ...], row=4, col=4, title=title)
+                # show_array_3d(label[0, ...], 4, 4)
+
+
+class TestPromise12Dataset(BaseDataset):
+    def __init__(self, opt, loader=nii_loader):
+        super(TestPromise12Dataset, self).__init__(opt)
+        self.paths = get_data_path(opt.dataroot, opt.phase)
+        self.data_size = len(self.paths)
+        self.loader = loader
+
+    def __getitem__(self, index):
+        volume_path = self.paths[index]['volume']
+        label_path = self.paths[index]['label']
+        volume = self.loader(volume_path)   # DHW, zyx
+        label = self.loader(label_path)
+        return {'volume': volume, 'label': label, 'volume_path': volume_path, 'label_path': label_path}
+
+    def __len__(self):
+        return self.data_size
+
+
+class PredictPromise12Dataset(BaseDataset):
+    def __init__(self, opt, loader=nii_loader):
+        # save the option and dataset root
+        super(PredictPromise12Dataset, self).__init__(opt)
+
+        self.paths = get_data_path(opt.dataroot, opt.phase)  # should be [{'volume':volume,'label':label}, ...]
         self.data_size = len(self.paths)
 
         self.loader = loader
@@ -47,148 +104,138 @@ class Promise12Dataset(CustomDataset):
         self.transform = get_transform(opt)
         self.post_transform = get_post_transform(opt)
 
+        self.to_tensor = ToTensor(expand_dims=True)
+
     def __getitem__(self, index):
-        index_used = self._get_used_index(index)
-        ### Old version
-        # volume_path = self.paths[index_used]['volume']
-        # label_path = self.paths[index_used]['label']
-        # volume = self.loader(volume_path)
-        # label = self.loader(label_path)
-        ### New version
-        data_path = self.paths[index_used]
-        volume, label = self.loader(data_path, 'volume', 'label')
+        volume_path = self.paths[index]['volume']
+        label_path = self.paths[index]['label']
+        volume = self.loader(volume_path)   # DHW, zyx
+        label = self.loader(label_path)
+        origin_shape = label.shape
 
-        volume = self._apply_pre_transform(volume)
-        volume = Normalize(volume.mean(), volume.std())(volume)
-        # print_numpy(volume)
+        # 进行形状变换前的对volume进行的一些特殊处理,目前为空
+        if self.pre_transform:
+            volume = self.pre_transform(volume)
+        # 同时对volume和label进行的一些处理，主要包括，旋转、放缩、剪切，镜像，通道变换等
+        if self.transform:
+            volume, label = self.transform(volume, label)
+        # 单独对volume做的一些处理，主要包括亮度、对比度、噪声变换等
+        if self.post_transform:
+            volume = self.post_transform(volume)
 
-        if 'bothscale' in self.opt.preprocess.split('_'):
-            volume, label = random_scale(volume, label, scale_in=0.2, execution_probability=0.2)
-        if 'bothresize' in self.opt.preprocess.split('_'):
-            volume = agent_resize(volume, self.opt.crop_size[::-1], order=3,  mode='constant', cval=0.0)
-            label = agent_resize(label, self.opt.crop_size[::-1], order=1,  mode='constant', cval=0.0)
+        now_shape = label.shape
 
-        volume, label = self._apply_transform(volume, label)
-        volume = self._apply_post_transform(volume)
+        volume = self.to_tensor(volume)
+        label = self.to_tensor(label)
 
-        return {'volume': volume, 'label': label, 'path': data_path}
-        # return {'volume': volume, 'label': label, 'volume_path': volume_path, 'label_path': label_path}
+        return {'volume': volume, 'label': label, 'volume_path': volume_path, 'label_path': label_path,
+                'origin_shape': origin_shape, 'now_shape': now_shape}
 
     def __len__(self):
         """Return the total number of images."""
         return self.data_size
 
-    def custom_debug(self, *args, **kwargs):
-        pat = re.compile(r'.*(Case\d+).*')
-        for index in range(self.data_size):
-            if index < 100:
-                tt = self.__getitem__(index)
-                print(tt['path'])
-                data = tt['volume'].cpu().numpy()
-                label = tt['label'].cpu().numpy()
-                print(f'data shape:{data.shape}')
-                # print(f'label shape:{label.shape}')
-                # print_numpy(data)
-                # print_numpy(label)
-                title = pat.match(tt['path']).groups()[0]
-                # show_array_3d(data[0, ...], 4, 4, title='vol-'+title)
-                show_volume_label(data[0, ...], label[0, ...], 4, 3, title=title, add_line=True, normalize_per=True)
-
-
-class CustomDatasetDataLoader:
-    def __init__(self, dataset):
-        self.dataset = dataset
-        self.batch_size = 8
-        self.dataloader = torch.utils.data.DataLoader(self.dataset, batch_size=self.batch_size, pin_memory=False,
-                                                      shuffle=True, num_workers=1)
-        self.max_dataset_size = float('inf')
-
-    def load_data(self):
-        return self
-
-    def __len__(self):
-        """Return the number of data in the dataset"""
-        return min(len(self.dataset), self.max_dataset_size)
-
-    def __iter__(self):
-        """Return a batch of data"""
-        for i, data in enumerate(self.dataloader):
-            if i * self.batch_size >= self.max_dataset_size:
-                print('max_dataset_size:{}'.format(self.max_dataset_size))
-                break
-            yield data
-
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--dataroot', type=str, default='/data/project_data_lf/PROJECT/DLForPytorch/datasets/promise12')
-    parser.add_argument('--phase', type=str, default='test')
-    parser.add_argument('--preprocess', type=str, default='GaussianNoise_bothresize_rot90_flip')  # 'GaussianNoise_crop_rotate_centercrop_rot90_flip'
-    parser.add_argument('--gaussian_sigma', type=str, default='0.0,0.1')
-    parser.add_argument('--crop_size', type=str, default='224,224,36', help='the crop size of slide windows')
-    parser.add_argument('--angle_spectrum', type=int, default=45, help='random rotate, angle')
+    parser = argparse.ArgumentParser(description='for the test of promise dataset')
+    parser.add_argument('--dataroot', type=str,
+                        default=r'/home/lf/raid_lf/PROJECT/DLForPytorch/traces/datasets/promise12_pre')
+    parser.add_argument('--phase', type=str, default='train')
     parser.add_argument('--seed', type=int, default=1008)
-    parser.add_argument('--custom', action='store_true')
+    parser.add_argument('--preprocess', type=str, default=r'elastic_randomscale_randomcrop_ranomrotate_centercrop_'
+                                                          r'rot90_mirror_gaussianNoise_GaussianBlur_'
+                                                          r'BrightnessMultiplicative_contrast_simulate_gammatransform')
     parser.add_argument('--serial_batches', action='store_true')
-    opt = parser.parse_args(args=['--custom'])
+    parser.add_argument('--custom', action='store_true')
+    parser.add_argument('--rot_axes', type=list, default=[2, 1], help='the rot90 axes')
+    parser.add_argument('--order_data', type=int, default=3)
+    parser.add_argument('--order_seg', type=int, default=1)
+    parser.add_argument('--elastic_alpha', type=list, default=[0., 900])
+    parser.add_argument('--elastic_sigma', type=list, default=[9., 13.])
+    parser.add_argument('--scale_range', type=list, default=[0.85, 1.25])
+    parser.add_argument('--crop_size', type=list, default=[96, 96, 32])
+    opt = parser.parse_args(args=['--serial_batches', '--custom'])
+    # opt.preprocess = r'elastic_randomscale_randomcrop_ranomrotate_centercrop_rot90_mirror_gaussianNoise_' \
+    #                  r'GaussianBlur_BrightnessMultiplicative_contrast_simulate_gammatransform'
+    opt.random_state = np.random.RandomState(seed=opt.seed)
 
-    opt.crop_size = convert_str_to_list(opt.crop_size, split=',', aim_type=int, condition=lambda x: x > 0)
-    opt.gaussian_sigma = convert_str_to_list(opt.gaussian_sigma, split=',', aim_type=float, condition=lambda x: x >= 0)
-    dataset = Promise12Dataset(opt, loader=h5_loader)  # partial(h5_loader, names=('volume', 'label'))
-    print('dataset_len:', len(dataset))
-    dataset.custom_debug()
+    # opt.preprocess = r'elastic_randomscale_randomcrop_ranomrotate_centercrop_rot90_mirror_gaussianNoise_GaussianBlur_BrightnessMultiplicative_contrast_simulate_gammatransform'
+#
+    print(get_pretty_opt(opt))
+    dataset = Promise12Dataset(opt)
+    print(len(dataset))
+    with Timer('running with custom_debug, using time:%ss'):
+        # dataset.custom_debug()
+        start_time = time.time()
+        for ind, test_data in enumerate(dataset):
+            print('using time:%s'%(time.time()-start_time))
+            if ind > 100:
+                break
+            print(ind)
+            print(test_data.keys())
+            start_time = time.time()
 
-    # dataloader = CustomDatasetDataLoader(dataset)
-    # ind = 0
-    # for epoch in range(1000):
-    #     for data in dataloader:
-    #         ind += 1
-    #         print('epoch', epoch)
-    #         # print(ind)
-    #         print(data['path'])
-    #     # print(data.size())
-    #     # print(data.keys())
-    #     # print(type(data['volume']))
-    #     # print(data['volume'].size())
-    #     # print(type(data['path']))
-    #     # print(data['path'])
-
-
-def process_nii2h5(root):
-    pat = re.compile(r'.*(Case\d+).*')
-    volume_paths = [os.path.join(root, name) for name in os.listdir(root) if 'itk_image' in name]
-    label_paths = [name.replace('image', 'label') for name in volume_paths]
-    print('len:', (len(volume_paths)))
-    i = 1
-    for volume_path, label_path in zip(volume_paths, label_paths):
-        volume = nii_loader(volume_path)
-        label = nii_loader(label_path)
-        print('loaded nii file')
-        print('volume shape:', volume.shape)
-        print_numpy(volume)
-        print_numpy(label)
-        data_label_slim = slim_array(np.stack([volume, label], axis=0), dims=(1,))
-        data_slim = data_label_slim[0, ...]
-        label_slim = data_label_slim[1, ...]
-        print('slim end')
-        bin_edge, data_post = clip_array(data_slim, rate=0.999, bins=1000, side_bin=True)
-        print('clip end')
-        data_nor = Normalize(np.mean(data_post), np.std(data_post), eps=1e-6)(data_post)
-        print('normal end')
-        print('data_nor shape:', data_nor.shape)
-        print_numpy(data_nor)
-        print_numpy(label_slim)
-
-        name = pat.match(volume_path).groups()[0]
-        show_volume_label(data_nor, label_slim, 4, 3, title=name, add_line=True, normalize_per=True)
-
-        # save_name = os.path.join(os.path.dirname(volume_path), name+'.h5')
-        # fw = h5py.File(save_name, mode='w')
-        # fw.create_dataset(name='volume', data=data_nor)
-        # fw.create_dataset(name='label', data=label_slim)
-        # fw.close()
-        # print(f'{i} end')
-        # i += 1
+# # OLD
+#
+# class CustomDatasetDataLoader:
+#     def __init__(self, dataset):
+#         self.dataset = dataset
+#         self.batch_size = 8
+#         self.dataloader = torch.utils.data.DataLoader(self.dataset, batch_size=self.batch_size, pin_memory=False,
+#                                                       shuffle=True, num_workers=1)
+#         self.max_dataset_size = float('inf')
+#
+#     def load_data(self):
+#         return self
+#
+#     def __len__(self):
+#         """Return the number of data in the dataset"""
+#         return min(len(self.dataset), self.max_dataset_size)
+#
+#     def __iter__(self):
+#         """Return a batch of data"""
+#         for i, data in enumerate(self.dataloader):
+#             if i * self.batch_size >= self.max_dataset_size:
+#                 print('max_dataset_size:{}'.format(self.max_dataset_size))
+#                 break
+#             yield data
+#
+#
+# def process_nii2h5(root):
+#     pat = re.compile(r'.*(Case\d+).*')
+#     volume_paths = [os.path.join(root, name) for name in os.listdir(root) if 'itk_image' in name]
+#     label_paths = [name.replace('image', 'label') for name in volume_paths]
+#     print('len:', (len(volume_paths)))
+#     i = 1
+#     for volume_path, label_path in zip(volume_paths, label_paths):
+#         volume = nii_loader(volume_path)
+#         label = nii_loader(label_path)
+#         print('loaded nii file')
+#         print('volume shape:', volume.shape)
+#         print_numpy(volume)
+#         print_numpy(label)
+#         data_label_slim = slim_array(np.stack([volume, label], axis=0), dims=(1,))
+#         data_slim = data_label_slim[0, ...]
+#         label_slim = data_label_slim[1, ...]
+#         print('slim end')
+#         bin_edge, data_post = clip_array(data_slim, rate=0.999, bins=1000, side_bin=True)
+#         print('clip end')
+#         data_nor = Normalize(np.mean(data_post), np.std(data_post), eps=1e-6)(data_post)
+#         print('normal end')
+#         print('data_nor shape:', data_nor.shape)
+#         print_numpy(data_nor)
+#         print_numpy(label_slim)
+#
+#         name = pat.match(volume_path).groups()[0]
+#         show_volume_label(data_nor, label_slim, 4, 3, title=name, add_line=True, normalize_per=True)
+#
+#         # save_name = os.path.join(os.path.dirname(volume_path), name+'.h5')
+#         # fw = h5py.File(save_name, mode='w')
+#         # fw.create_dataset(name='volume', data=data_nor)
+#         # fw.create_dataset(name='label', data=label_slim)
+#         # fw.close()
+#         # print(f'{i} end')
+#         # i += 1
 
 
 if __name__ == '__main__':

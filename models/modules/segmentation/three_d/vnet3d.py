@@ -1,6 +1,7 @@
 # 3D-UNet model.
 # x: 128x128 resolution for 32 frames.
 # https://github.com/huangzhii/FCN-3D-pytorch/blob/master/main3d.py
+# https://github.com/mattmacy/vnet.pytorch/blob/master/vnet.py
 # from https://github.com/MontaEllis/Pytorch-Medical-Segmentation/blob/master/models/three_d/vnet3d.py
 import torch
 import torch.nn as nn
@@ -38,9 +39,9 @@ def _make_nConv(nchan, depth, elu):
 
 
 class InputTransition(nn.Module):
-    def __init__(self, in_channels, elu):
+    def __init__(self, in_channels, elu, num_features=16):
         super(InputTransition, self).__init__()
-        self.num_features = 16
+        self.num_features = num_features
         self.in_channels = in_channels
 
         self.conv1 = nn.Conv3d(self.in_channels, self.num_features, kernel_size=5, padding=2)
@@ -49,11 +50,11 @@ class InputTransition(nn.Module):
 
         self.relu1 = ELUCons(elu, self.num_features)
 
+        self.repeat_rate = int(self.num_features / self.in_channels)
+
     def forward(self, x):
-        out = self.conv1(x)
-        repeat_rate = int(self.num_features / self.in_channels)
-        out = self.bn1(out)
-        x16 = x.repeat(1, repeat_rate, 1, 1, 1)
+        out = self.bn1(self.conv1(x))
+        x16 = x.repeat(1, self.repeat_rate, 1, 1, 1)
         return self.relu1(torch.add(out, x16))
 
 

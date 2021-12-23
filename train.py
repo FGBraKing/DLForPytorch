@@ -10,12 +10,12 @@ from models import create_model
 from utils.forLogs import Visualizer, get_logger
 from utils.others.utils import init_seed, init_torch, print_numpy, mkdirs
 from utils.others.distributed_utils import record_distribute_ddp, torch_distributed_zero_first
-from utils.others.img_io import show_paired_image, show_volume_label, show_volume_label_predict
-from utils.others.img_io import show_image, show_array_3d
+from utils.others.img_io import show_image, show_paired_image
+from utils.others.img_io import show_array_3d, show_volume_label, show_volume_label_predict
 from configs.simple_options import get_opt
 from pprint import pprint
 # from configs.options.promise_3dunet import TrainOptions
-from configs.options.dataset_network import ProjectOptions
+# from configs.options.dataset_network import ProjectOptions
 from configs.utils_config import pretty_print_opt, get_pretty_opt
 from matplotlib import pyplot as plt
 # import matplotlib
@@ -36,7 +36,6 @@ def set_local_gpu(args):
 
     if args.local_gpu >= 0 and torch.cuda.is_available():
         torch.cuda.set_device(args.local_gpu)   # setup default cuda device
-
     return args
 
 
@@ -45,7 +44,10 @@ def train():
     # opt = ProjectOptions().parse(True)   # get training options
     # opt = get_opt(args=None)
     # opt = get_opt(args=['--config_path=configs/defaults/trus_unet3d.yaml', '--use_config'])
-    opt = get_opt(args=['--config_path=configs/defaults/trus_unet3d.yaml', '--use_config', '--use_current_local_rank'])
+    # opt = get_opt(args=['--config_path=configs/defaults/promise12_unet3d.yaml', '--use_config',
+    #                     '--use_current_local_rank'])
+    opt = get_opt(args=['--config_path=configs/defaults/mrusmr_train.yaml', '--use_config', '--use_current_local_rank'])
+    # opt = get_opt(args=['--config_path=configs/defaults/trus_unet3d.yaml','--use_config', '--use_current_local_rank'])
 
     init_torch(gpu_id=opt.visible_gpu, deterministic=opt.deterministic)
     assert torch.backends.cudnn.enabled, "Amp requires cudnn backend to be enabled."
@@ -118,6 +120,9 @@ def do_train(opt):
     model.setup(opt)               # regular setup: load and print networks
     ddp_logger.warning('model get ready')
 
+    if opt.lr_policy in ['poly', 'tanh', 'cosine']:
+        opt.num_epochs = model.get_schedulers()[0].get_cycle_length() + opt.cooldown_epochs
+
     optimize_parameters = model.optimize_parameters_with_apex if opt.APEX else model.optimize_parameters
     save_networks = model.save_for_apex if opt.APEX else model.save_networks
 
@@ -143,7 +148,7 @@ def do_train(opt):
     ddp_logger.warning('start training! on local_rank:{}'.format(opt.local_rank))
 
     total_iters = 0                # the total number of training iterations
-    std_test_metrics_dice = 0.8
+    std_test_metrics_dice = 0.82
     now_test_metrics_dice = 0.0
     best_test_metrics_dice = 0.0
     best_test_metrics_epoch = 0.0
@@ -184,7 +189,6 @@ def do_train(opt):
 
             model.set_input(data)
             optimize_parameters(batch_idx % opt.gradient_accumulation_k_step == 0)
-
             # 计算当前训练数据的metrics、losses、lrs， 使用visualizer绘图并打印
             if total_iters % opt.print_freq == 0 or total_iters % opt.plot_freq == 0:
                 # 因为要reduce结果，所以全部进程都要进行计算
@@ -255,8 +259,13 @@ def do_train(opt):
                             visualizer.add_histogram(name, image, total_iters)
 
                     if opt.save_visuals:
-                        name = 'epoch-{}-epoch_iter-{}'.format(epoch, epoch_iter)
-                        visualizer.save_visuals(visuals, name)
+                        if opt.save_only_latest:
+                            name = 'latest'
+                            visualizer.save_visuals(visuals, name)
+                        elif total_iters % opt.save_visuals_frep == 0:
+                            # name = 'epoch-{}-epoch_iter-{}'.format(epoch, epoch_iter)
+                            name = 'epoch-{}-epoch_iter-{}'.format(epoch, epoch_iter)
+                            visualizer.save_visuals(visuals, name)
 
                     if opt.display_on_tensorboard:
                         # visuals_refine = {}
@@ -285,7 +294,7 @@ def do_train(opt):
             # if opt.DDP:
             #     torch.distributed.barrier()
             # torch.cuda.synchronize()
-                iter_data_time = time.time()
+            iter_data_time = time.time()
 
         # torch.cuda.synchronize()
         time_logger.info('Time all iteration on epoch Taken: %d sec' % (time.time() - epoch_start_time))
@@ -335,8 +344,13 @@ def do_train(opt):
                         # # show_volume_label(test_label, test_predict, row=4, col=4, title=f'test two {volume_name}')
 
                     if opt.save_visuals:
-                        name = 'epoch-{}-epoch_iter-{}-test'.format(epoch, epoch_iter)
-                        visualizer.save_visuals(test_visuals, name)
+                        if opt.save_only_latest:
+                            name = 'latest-test'
+                            visualizer.save_visuals(test_visuals, name)
+                        elif total_iters % opt.save_visuals_frep == 0:
+                            # name = 'epoch-{}-epoch_iter-{}'.format(epoch, epoch_iter)
+                            name = 'epoch-{}-epoch_iter-{}-test'.format(epoch, epoch_iter)
+                            visualizer.save_visuals(test_visuals, name)
 
                     if opt.display_on_tensorboard:
                         for name, image in test_visuals.items():
@@ -374,7 +388,13 @@ def do_train(opt):
         # 按照epoch保存checkpoint
         # 根据需要保存optimizer和apex的state_dict
         if on_master:
-            if (now_test_metrics_dice > std_test_metrics_dice) \
+            if epoch > 500:
+                if now_test_metrics_dice >= best_test_metrics_dice:
+                    ddp_logger.warning('saving the model at the end of epoch %d, iters %d' % (epoch, total_iters))
+                    save_networks('latest')
+                    save_networks(epoch)
+                    visualizer.add_text(opt.name, f'saving checkpoint on {epoch}', total_iters)
+            elif (now_test_metrics_dice > std_test_metrics_dice) \
                     and (epoch > opt.save_epoch_start and (epoch-opt.save_epoch_start) % opt.save_epoch_freq == 0):
                 # cache our model every <save_epoch_freq> epochs
                 ddp_logger.warning('saving the model at the end of epoch %d, iters %d' % (epoch, total_iters))

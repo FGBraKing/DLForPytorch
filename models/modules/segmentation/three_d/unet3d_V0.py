@@ -1,8 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-from models.auxiliary_funs import print_model_parm_nums, print_model_parm_flops
+# 在反卷积后的卷积融合上减少channel
 
 
 class UNet3D(nn.Module):
@@ -28,18 +27,12 @@ class UNet3D(nn.Module):
             See `DoubleConv` for more info.
     """
 
-    def __init__(self, in_channels, out_channels, final_sigmoid, interpolate=True, conv_layer_order='crg',
-                 init_channel_number=64, use_activation=False):
+    def __init__(self, in_channels, out_channels, interpolate=True, conv_layer_order='crg',
+                 init_channel_number=64, final_sigmoid=True, use_activation=False):
         super(UNet3D, self).__init__()
 
         # number of groups for the GroupNorm
         num_groups = min(init_channel_number // 2, 32)
-
-    # time_power = [pow(2, i) for i in range(4+1)]
-    # tt_encode = [Encoder(time_power[i] * init_channel_number, time_power[i+1] * init_channel_number,
-    #                      conv_layer_order=conv_layer_order, num_groups=num_groups) for i in range(4)]
-    # tt_decode = [Decoder(3 * init_channel_number * time_power[4-i-1], time_power[4-i-1] * init_channel_number,
-    #                      interpolate, conv_layer_order=conv_layer_order, num_groups=num_groups) for i in range(4)]
 
         # encoder path consist of 4 subsequent Encoder modules
         # the number of features maps is the same as in the paper
@@ -51,19 +44,19 @@ class UNet3D(nn.Module):
             Encoder(2 * init_channel_number, 4 * init_channel_number, conv_layer_order=conv_layer_order,
                     num_groups=num_groups),
             Encoder(4 * init_channel_number, 8 * init_channel_number, conv_layer_order=conv_layer_order,
-                    num_groups=num_groups),
-            Encoder(8 * init_channel_number, 16 * init_channel_number, conv_layer_order=conv_layer_order,
                     num_groups=num_groups)
+            # Encoder(8 * init_channel_number, 16 * init_channel_number, conv_layer_order=conv_layer_order,
+            #         num_groups=num_groups)
         ])
 
         self.decoders = nn.ModuleList([
-            Decoder(8 * init_channel_number + 16 * init_channel_number, 8 * init_channel_number, interpolate,
+            # Decoder(16 * init_channel_number + 8 * init_channel_number, 8 * init_channel_number, interpolate,
+            #         conv_layer_order=conv_layer_order, num_groups=num_groups),
+            Decoder(8 * init_channel_number + 4 * init_channel_number, 4 * init_channel_number, interpolate,
                     conv_layer_order=conv_layer_order, num_groups=num_groups),
-            Decoder(4 * init_channel_number + 8 * init_channel_number, 4 * init_channel_number, interpolate,
+            Decoder(4 * init_channel_number + 2 * init_channel_number, 2 * init_channel_number, interpolate,
                     conv_layer_order=conv_layer_order, num_groups=num_groups),
-            Decoder(2 * init_channel_number + 4 * init_channel_number, 2 * init_channel_number, interpolate,
-                    conv_layer_order=conv_layer_order, num_groups=num_groups),
-            Decoder(init_channel_number + 2 * init_channel_number, init_channel_number, interpolate,
+            Decoder(2 * init_channel_number + init_channel_number, init_channel_number, interpolate,
                     conv_layer_order=conv_layer_order, num_groups=num_groups)
         ])
 
@@ -83,25 +76,16 @@ class UNet3D(nn.Module):
         encoders_features = []
         for encoder in self.encoders:
             x = encoder(x)
-            # reverse the encoder outputs to be aligned with the decoder
             encoders_features.insert(0, x)
 
-        # remove the last encoder's output from the list
-        # !!remember: it's the 1st in the list
         encoders_features = encoders_features[1:]
 
         # decoder part
         for decoder, encoder_features in zip(self.decoders, encoders_features):
-            # pass the output from the corresponding encoder and the output
-            # of the previous decoder
             x = decoder(encoder_features, x)
 
         x = self.final_conv(x)
 
-        # apply final_activation (i.e. Sigmoid or Softmax) only for prediction.
-        # During training the network outputs logits and it's up to the user to normalize it before visualising with tensorboard or computing validation metric
-        # if not self.training:
-        #     x = self.final_activation(x)
         if self.use_activation:
             x = self.final_activation(x)
 
@@ -249,7 +233,8 @@ class Decoder(nn.Module):
             self.upsample = None
         else:
             # make sure that the output size reverses the MaxPool3d
-            # D_out=(D_in−1)×stride[0]−2×padding[0]+kernel_size[0]+output_padding[0]
+            # o=(i-1)*s-2*i_p+d*(k-1) + o_p +1
+            # D_out=(D_in−1)×stride[0]−2×padding[0]+kernel_size[0]+output_padding[0], when dilation=1
             self.upsample = nn.ConvTranspose3d(2 * out_channels,
                                                2 * out_channels,
                                                kernel_size=kernel_size,
@@ -264,7 +249,7 @@ class Decoder(nn.Module):
     def forward(self, encoder_features, x):
         if self.upsample is None:
             output_size = encoder_features.size()[2:]
-            x = F.interpolate(x, size=output_size, mode='trilinear', align_corners=True)      # nearest
+            x = F.interpolate(x, size=output_size, mode='trilinear', align_corners=True)
         else:
             x = self.upsample(x)
         # concatenate encoder_features (encoder path) with the upsampled input across channel dimension
@@ -274,6 +259,11 @@ class Decoder(nn.Module):
 
 
 if __name__ == "__main__":
+    from torchsummary import summary
+    # from models.auxiliary_hookers import FeatureMapExtractor, FeatureGradientExtractor
+    from models.auxiliary_funs import print_model_parm_nums, print_model_parm_flops
+    # from torchviz import make_dot
+
     device = torch.device(f"cuda:{0}" if torch.cuda.is_available() else 'cpu')
     net = UNet3D(in_channels=1, out_channels=1, init_channel_number=32, interpolate=False,
                  conv_layer_order='crb', final_sigmoid=True).to(device)
@@ -294,11 +284,14 @@ if __name__ == "__main__":
     inputs = torch.rand((16, 1, 64, 64, 64), requires_grad=True).to(device)
     print_model_parm_nums(net)  # 40.15M
     print_model_parm_flops(net, inputs, need_idx=False)  # 751.84G
-
-    from torchsummary import summary
     summary(net, input_size=(1, 128, 128, 128), batch_size=1, device='cuda')
 
-    # from models.auxiliary_hookers import FeatureMapExtractor, FeatureGradientExtractor,
+    # onnx_path = r"/home/lf/raid_lf/PROJECT/DLForPytorch/traces/network_visualization/unet3d_gn"
+    # torch.onnx.export(net, inputs, onnx_path)
+    # y = net(inputs)
+    # g = make_dot(y, params=dict(net.named_parameters()))
+    # g.render('/home/lf/raid_lf/PROJECT/DLForPytorch/traces/network_visualization/unet3d_viz', view=False)
+
     # WeightGradientExtractor, get_model_weight
     # weight, bias = get_model_weight(net, 'double_conv.conv1')
     # print(weight[0].requires_grad, weight[0].is_leaf, weight[0].grad, weight[0].grad_fn)

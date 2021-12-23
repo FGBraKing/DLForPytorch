@@ -1,133 +1,43 @@
+"""
+BSD 3-Clause License
+Copyright (c) Soumith Chintala 2016,
+All rights reserved.
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+"""
+
 import torch
-from torch import nn
+import torch.nn as nn
 from torch.nn import functional as F
+
 from typing import Optional
-from models.auxiliary_funs import Activation
+from .base import SegmentationModel, SegmentationHead, ClassificationHead
 
 
-# ------------------------------------------encoder---------------------------------------------
-def get_encoder(name, in_channels, depth, weights, output_stride):
-    class Encoder(nn.Module):
-        def __init__(self):
-            super(Encoder, self).__init__()
-
-        def forward(self, x):
-            return []
-    return Encoder()
+# ---------------------------------------Encode ---------------------------------------
+def get_encoder(*args, **kwargs):
+    return nn.Identity()
 
 
-# -------------------------------------------------initialize---------------------------------------------------
-def initialize_decoder(module):
-    for m in module.modules():
-
-        if isinstance(m, nn.Conv3d):
-            nn.init.kaiming_uniform_(m.weight, mode="fan_in", nonlinearity="relu")
-            if m.bias is not None:
-                nn.init.constant_(m.bias, 0)
-
-        elif isinstance(m, nn.BatchNorm3d):
-            nn.init.constant_(m.weight, 1)
-            nn.init.constant_(m.bias, 0)
-
-        elif isinstance(m, nn.Linear):
-            nn.init.xavier_uniform_(m.weight)
-            if m.bias is not None:
-                nn.init.constant_(m.bias, 0)
-
-
-def initialize_head(module):
-    for m in module.modules():
-        if isinstance(m, (nn.Linear, nn.Conv3d)):
-            nn.init.xavier_uniform_(m.weight)
-            if m.bias is not None:
-                nn.init.constant_(m.bias, 0)
-
-
-# -------------------------------------------------modules-----------------------------------------
-try:
-    from inplace_abn import InPlaceABN
-except ImportError:
-    InPlaceABN = None
-
-
-class Conv3dReLU(nn.Sequential):
-    def __init__(
-            self,
-            in_channels,
-            out_channels,
-            kernel_size,
-            padding=0,
-            stride=1,
-            use_batchnorm=True,
-    ):
-
-        if use_batchnorm == "inplace" and InPlaceABN is None:
-            raise RuntimeError(
-                "In order to use `use_batchnorm='inplace'` inplace_abn package must be installed. "
-                + "To install see: https://github.com/mapillary/inplace_abn"
-            )
-
-        conv = nn.Conv3d(
-            in_channels,
-            out_channels,
-            kernel_size,
-            stride=stride,
-            padding=padding,
-            bias=not (use_batchnorm),
-        )
-        relu = nn.ReLU(inplace=True)
-
-        if use_batchnorm == "inplace":
-            bn = InPlaceABN(out_channels, activation="leaky_relu", activation_param=0.0)
-            relu = nn.Identity()
-
-        elif use_batchnorm and use_batchnorm != "inplace":
-            bn = nn.BatchNorm3d(out_channels)
-
-        else:
-            bn = nn.Identity()
-
-        super(Conv3dReLU, self).__init__(conv, bn, relu)
-
-
-class SCSEModule(nn.Module):
-    def __init__(self, in_channels, reduction=16):
-        super().__init__()
-        self.cSE = nn.Sequential(
-            nn.AdaptiveAvgPool3d(1),
-            nn.Conv3d(in_channels, in_channels // reduction, 1),
-            nn.ReLU(inplace=True),
-            nn.Conv3d(in_channels // reduction, in_channels, 1),
-            nn.Sigmoid(),
-        )
-        self.sSE = nn.Sequential(nn.Conv3d(in_channels, 1, 1), nn.Sigmoid())
-
-    def forward(self, x):
-        return x * self.cSE(x) + x * self.sSE(x)
-
-
-class Attention(nn.Module):
-
-    def __init__(self, name, **params):
-        super().__init__()
-
-        if name is None:
-            self.attention = nn.Identity(**params)
-        elif name == 'scse':
-            self.attention = SCSEModule(**params)
-        else:
-            raise ValueError("Attention {} is not implemented".format(name))
-
-    def forward(self, x):
-        return self.attention(x)
-
-
-class Flatten(nn.Module):
-    def forward(self, x):
-        return x.view(x.shape[0], -1)
-
-
-# ----------------------------------------------------decoder-----------------------------------------------------
+# -----------------------------Decode------------------
 class DeepLabV3Decoder(nn.Sequential):
     def __init__(self, in_channels, out_channels=256, atrous_rates=(12, 24, 36)):
         super().__init__(
@@ -237,7 +147,7 @@ class ASPPPooling(nn.Sequential):
         )
 
     def forward(self, x):
-        size = x.shape[-3:]
+        size = x.shape[-2:]
         for mod in self:
             x = mod(x)
         return F.interpolate(x, size=size, mode='bilinear', align_corners=False)
@@ -311,67 +221,7 @@ class SeparableConv3d(nn.Sequential):
         super().__init__(dephtwise_conv, pointwise_conv)
 
 
-# ------------------------------------------------heads------------------------------------------
-class SegmentationHead(nn.Sequential):
-
-    def __init__(self, in_channels, out_channels, kernel_size=3, activation=None, upsampling=1):
-        conv3d = nn.Conv3d(in_channels, out_channels, kernel_size=kernel_size, padding=kernel_size // 2)
-        upsampling = nn.Upsample(scale_factor=upsampling, mode='trilinear', align_corners=True) if upsampling > 1 else nn.Identity()
-        activation = Activation(activation)
-        super().__init__(conv3d, upsampling, activation)
-
-
-class ClassificationHead(nn.Sequential):
-
-    def __init__(self, in_channels, classes, pooling="avg", dropout=0.2, activation=None):
-        if pooling not in ("max", "avg"):
-            raise ValueError("Pooling should be one of ('max', 'avg'), got {}.".format(pooling))
-        pool = nn.AdaptiveAvgPool3d(1) if pooling == 'avg' else nn.AdaptiveMaxPool3d(1)
-        flatten = Flatten()
-        dropout = nn.Dropout(p=dropout, inplace=True) if dropout else nn.Identity()
-        linear = nn.Linear(in_channels, classes, bias=True)
-        activation = Activation(activation)
-        super().__init__(pool, flatten, dropout, linear, activation)
-
-
-#  -----------------------------------------------------deeplab----------------------------------------------------------
-class SegmentationModel(nn.Module):
-
-    def initialize(self):
-        initialize_decoder(self.decoder)
-        initialize_head(self.segmentation_head)
-        if self.classification_head is not None:
-            initialize_head(self.classification_head)
-
-    def forward(self, x):
-        """Sequentially pass `x` trough model`s encoder, decoder and heads"""
-        features = self.encoder(x)
-        decoder_output = self.decoder(*features)
-
-        masks = self.segmentation_head(decoder_output)
-
-        if self.classification_head is not None:
-            labels = self.classification_head(features[-1])
-            return masks, labels
-
-        return masks
-
-    def predict(self, x):
-        """Inference method. Switch model to `eval` mode, call `.forward(x)` with `torch.no_grad()`
-        Args:
-            x: 4D torch tensor with shape (batch_size, channels, height, width)
-        Return:
-            prediction: 4D torch tensor with shape (batch_size, classes, height, width)
-        """
-        if self.training:
-            self.eval()
-
-        with torch.no_grad():
-            x = self.forward(x)
-
-        return x
-
-
+# -----------------------------Model------------------
 class DeepLabV3(SegmentationModel):
     """DeepLabV3_ implementation from "Rethinking Atrous Convolution for Semantic Image Segmentation"
     Args:
@@ -529,3 +379,10 @@ class DeepLabV3Plus(SegmentationModel):
             )
         else:
             self.classification_head = None
+
+
+
+
+
+
+

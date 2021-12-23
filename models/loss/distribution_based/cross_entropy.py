@@ -5,6 +5,7 @@ import torch.nn.functional as F
 
 # from https://github.com/MontaEllis/Pytorch-Medical-Segmentation/blob/master/loss_function.py
 # input: NC *   target: N *
+# 不支持smooth label
 def cross_entropy_3D(input, target, weight=None, size_average=True):
 
     n, c, h, w, s = input.size()
@@ -19,6 +20,7 @@ def cross_entropy_3D(input, target, weight=None, size_average=True):
 
 # from https://github.com/rwightman/pytorch-image-models/blob/master/timm/loss/cross_entropy.py
 # x: NC *   target: N *
+# 带有smooth_loss的交叉熵，有点像滑动平均。 不支持smooth label
 class LabelSmoothingCrossEntropy(nn.Module):
     """
     NLL loss with label smoothing.
@@ -35,8 +37,8 @@ class LabelSmoothingCrossEntropy(nn.Module):
 
     def forward(self, x, target):
         logprobs = F.log_softmax(x, dim=1)      # log_p, NC
-        nll_loss = -logprobs.gather(dim=1, index=target.long().unsqueeze(1))    # q*log_p， N,1,*
-        nll_loss = nll_loss.squeeze(1)      # N
+        nll_loss = -logprobs.gather(dim=1, index=target.long().unsqueeze(1))    # -q*log_p， N,1,*
+        nll_loss = nll_loss.squeeze(1)      # N,*
         smooth_loss = -logprobs.mean(dim=1)
         loss = self.confidence * nll_loss + self.smoothing * smooth_loss
         return loss.mean()
@@ -44,6 +46,7 @@ class LabelSmoothingCrossEntropy(nn.Module):
 
 # from https://github.com/rwightman/pytorch-image-models/blob/master/timm/loss/cross_entropy.py
 #  x: NC *  target: N C *, C>2
+# 支持smooth label，不支持类权重和focal项
 class SoftTargetCrossEntropy(nn.Module):
 
     def __init__(self):
@@ -56,7 +59,8 @@ class SoftTargetCrossEntropy(nn.Module):
 
 # F.cross_entropy [N, C, *], [N, *], [N, *]
 # nn.BCEWithLogitsLoss
-# [N, 1, *] or [N, *]  target:N *, useful
+# [N, 1, *] or [N, *]  target:N *
+# 加权的二进制交叉熵， 带有smooth项和eps项， useful
 class WBCEWithLogitLoss(nn.Module):
     """
     Weighted Binary Cross Entropy.
@@ -115,21 +119,24 @@ class WBCEWithLogitLoss(nn.Module):
 
 
 # x: NC *   target: N *
+# 带有类权重的交叉熵函数
 class WeightedCrossEntropyLoss(nn.Module):
     """WeightedCrossEntropyLoss (WCE) as described in https://arxiv.org/pdf/1707.03237.pdf
     """
 
-    def __init__(self, weight=None, ignore_index=-1):
+    def __init__(self, weight=None, ignore_index=-1, reduction='mean'):
         super(WeightedCrossEntropyLoss, self).__init__()
         self.register_buffer('weight', weight)
         self.ignore_index = ignore_index
+        self.reduction = reduction
 
     def forward(self, inputs, target):
         class_weights = self._class_weights(inputs)
         if self.weight is not None:
             weight = torch.Tensor(self.weight, requires_grad=False)
             class_weights = class_weights * weight
-        return F.cross_entropy(inputs, target, weight=class_weights, ignore_index=self.ignore_index)
+        return F.cross_entropy(inputs, target, weight=class_weights,
+                               ignore_index=self.ignore_index, reduction=self.reduction)
 
     @staticmethod
     def _class_weights(inputs):
@@ -145,6 +152,7 @@ class WeightedCrossEntropyLoss(nn.Module):
 
 
 #  x: N C *  target: N C *   weights: N *
+# 带有像素点权重的加权交叉熵
 class PixelWiseCrossEntropyLoss(nn.Module):
     def __init__(self, class_weights=None, ignore_index=None):
         super(PixelWiseCrossEntropyLoss, self).__init__()
@@ -186,6 +194,7 @@ class PixelWiseCrossEntropyLoss(nn.Module):
 
 
 # [N,C,*] custom, useful
+# 带有像素点权重的加权交叉熵
 class MutiClassCrossEntropyLoss(nn.Module):
     '''
     变成one-hot编码的形式后，只计算每一类的前景。

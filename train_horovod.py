@@ -20,7 +20,7 @@ from utils.forLogs import Visualizer, get_logger
 from utils.others.utils import init_seed, init_torch
 from data.dataloads.trus_dataset import TrusDataset
 from data.utils_data import nii_loader
-from models.modules.segmentation.three_d.unet3d_gn import UNet3D
+from models.modules.segmentation.three_d.unet3d_V0 import UNet3D
 from models.loss.region_based import BinaryDiceLoss
 from configs.simple_options import get_opt
 from configs.utils_config import pretty_print_opt

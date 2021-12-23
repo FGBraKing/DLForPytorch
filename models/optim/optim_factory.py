@@ -38,13 +38,13 @@ def add_weight_decay(model, weight_decay=1e-5, skip_list=()):
             no_decay.append(param)
         else:
             decay.append(param)
-    return [
-        {'params': no_decay, 'weight_decay': 0.},
-        {'params': decay, 'weight_decay': weight_decay}]
+    return [{'params': no_decay, 'weight_decay': 0.},
+            {'params': decay, 'weight_decay': weight_decay}]
 
 
 # opt lr weight_decay momentum opt_eps opt_betas opt_args
 # opt lr weight_decay momentum eps betas opt_args
+#
 def optimizer_kwargs(cfg):
     """ cfg/argparse to kwargs helper
     Convert optimizer args in argparse args or cfg like object to keyword args for updated create fn.

@@ -5,16 +5,19 @@ import torch.distributed
 import torch.nn as nn
 import torch.cuda.amp
 
+from types import SimpleNamespace
 from .base_model import BaseModel
-from models.modules import UNet3D
 from models.loss import losses, get_loss_criterion
-
 from models.auxiliary_funs import get_init_func, get_activation
 from models.optim import create_optimizer, create_optimizer_v2
 from models.scheduler import create_scheduler
 from utils.others.metrics import BinaryMetrics, SoftMetrics
 from utils.others.distributed_utils import reduce_mean
 from utils.others.utils import print_numpy
+from models.modules.segmentation.three_d.unet3d_V0 import UNet3D as UNetV0
+from models.modules.segmentation.three_d.unet3d_V1 import UNet3D as UNetV1
+from models.modules.segmentation.three_d.unet3d_V2 import UNet3D as UNetV2
+from models.modules.segmentation.three_d.unet3d_V3 import UNet3D as UNetV3
 
 try:
     import apex.amp
@@ -37,9 +40,15 @@ ddp_logger = logging.getLogger('ddp_logger')
 
 def define_3dunet(opt, device):
     assert not(opt.DDP and opt.DP)
-    net = UNet3D(in_channels=opt.input_nc, out_channels=opt.output_nc, final_sigmoid=False,
-                 conv_layer_order=opt.conv_order, init_channel_number=opt.init_channel_number, use_activation=False)
-    # init_net(net, opt.init_type, opt.init_gain, opt.gpu_ids)
+    # net = UNetV0(in_channels=opt.input_nc, out_channels=opt.output_nc,
+    #              conv_layer_order=opt.conv_order, init_channel_number=opt.init_channel_number,
+    #              final_sigmoid=True, use_activation=False, interpolate=True)
+    net = UNetV1(in_channels=opt.input_nc, out_channels=opt.output_nc, init_features=opt.init_channel_number)  # cbr
+    # net = UNetV2(in_channels=opt.input_nc, out_channels=opt.output_nc, f_maps=opt.init_channel_number,
+    #              is_segmentation=False, num_levels=4, layer_order='cbr')
+    # net = UNetV3(in_channels=opt.input_nc, n_classes=opt.output_nc,
+    #              init_features=opt.init_channel_number, trilinear=True)
+
     init_func = get_init_func(init_type=opt.init_type, init_gain=opt.init_gain)
     net.apply(init_func)
 
@@ -85,18 +94,28 @@ class Unet3dModel(BaseModel):
         self.net_segment = define_3dunet(opt, self.device)
         self.finally_activate = get_activation('sigmoid').to(self.device)
 
-        self.loss_names = ['dice']
+        self.loss_names = ['seg']
         if self.isTrain:
-            self.criterion = get_loss_criterion(name='bdc', ignore_index=None, reducetion='mean',
-                                                use_batch=True, use_sigmoid=True, smooth=0.).to(self.device)
+            other_loss_kwargs = {}
+            # (sample_weight)   (gamma_neg gamma_pos clip)  (num_splits)  (activate)  (bce_smooth)
+            self.criterion = get_loss_criterion(name=opt.loss_name,
+                                                ignore_index=opt.ignore_index, reduction=opt.reduction,
+                                                eps=opt.loss_eps, smooth=opt.loss_smooth,
+                                                alpha=opt.loss_alpha, beta=opt.loss_beta,
+                                                gamma=opt.loss_gamma, weight=opt.loss_weight,
+                                                **other_loss_kwargs).to(self.device)
+            optimizer_kwargs = {'eps': 1e-8,
+                                'betas': (opt.beta1, 0.999)
+                                }
+            if 'sgd' in opt.optimizer_name.lower():
+                optimizer_kwargs.pop('betas', None)
             self.optimizer = create_optimizer_v2(self.net_segment.parameters(),
                                                  opt=opt.optimizer_name,
                                                  lr=opt.lr,
                                                  weight_decay=opt.weight_decay,
                                                  momentum=opt.momentum,
-                                                 betas=(opt.beta1, 0.999))
-            # self.optimizer = create_optimizer_v2(self.net_segment.parameters(), opt=opt.optimizer_name, lr=opt.lr,
-            #                                      betas=(opt.beta1, 0.999))
+                                                 **optimizer_kwargs)
+
             self.optimizers.append(self.optimizer)
             self.schedulers = [create_scheduler(opt, optimizer)[0] for optimizer in self.optimizers]
             if opt.APEX and has_apex:
@@ -110,7 +129,7 @@ class Unet3dModel(BaseModel):
 
         # specify the images you want to save/display.
         self.visual_names = ['predict', 'label', 'volume']
-        self.metric_names = ['DC', 'recall', 'precision', 'accuracy']
+        self.metric_names = ['DC', 'recall', 'precision', 'specificity', 'accuracy']
 
         self.get_metrics = BinaryMetrics()
         self.get_metrics_soft = SoftMetrics(smooth=0., eps=1e-6)
@@ -118,8 +137,9 @@ class Unet3dModel(BaseModel):
         self.volume = None
         self.label = None
         self.predict = None
-        self.loss_dice = None
+        self.loss_seg = None
         self.metrics = None
+        # setattr(self, opt.loss_name, None)
 
         self.autocast_context = torch.cuda.amp.autocast if opt.use_mixed_precision else contextlib.nullcontext
         self.no_sync_context = self.net_segment.no_sync if opt.DDP else contextlib.nullcontext
@@ -162,32 +182,31 @@ class Unet3dModel(BaseModel):
         hvd.broadcast_optimizer_state(self.optimizer, root_rank=0)
 
     def set_input(self, input):
+
         self.volume = input['volume'].to(self.device)   # bs C D H W, C=1
         self.label = input['label'].to(self.device)     # bs C D H W, C=1
         self.volume_path = input['volume_path']
         self.label_path = input['label_path']
+        if self.opt.DEBUG:
+            print('proportion: {:.2%}'.format(input['label'].sum()/input['label'].numpy().size))
 
     def forward(self):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
-
         with self.autocast_context():
             self.predict = self.net_segment(self.volume)
         self.is_activated = False
-        # self.predict = self.finally_activate(m)
 
     def backward(self):
         with self.autocast_context():
-            self.loss_dice = self.criterion(self.predict, self.label)
+            self.loss_seg = self.criterion(self.predict, self.label)
+        self.loss_seg = self.loss_seg / self.opt.gradient_accumulation_k_step
 
-        self.loss_dice = self.loss_dice / self.opt.gradient_accumulation_k_step
-
-        # TODO： 待优化。将判断语句放在迭代中，似乎会大幅增加损耗，多做了N次判断
         if self.opt.use_mixed_precision:
-            self.scaler.scale(self.loss_dice).backward()
+            self.scaler.scale(self.loss_seg).backward()
             self.scaler.step(self.optimizer)  # maybe apply to all optimizers
             self.scaler.update()
         else:
-            self.loss_dice.backward()
+            self.loss_seg.backward()
 
     def optimize_parameters(self, update=True):
         if update:
@@ -203,8 +222,8 @@ class Unet3dModel(BaseModel):
     def optimize_parameters_with_apex(self):
         self.optimizer.zero_grad()
         self.predict = self.net_segment(self.volume)
-        self.loss_dice = self.criterion(self.predict, self.label)
-        with apex.amp.scale_loss(self.loss_dice, self.optimizers) as scaled_loss:
+        self.loss_seg = self.criterion(self.predict, self.label)
+        with apex.amp.scale_loss(self.loss_seg, self.optimizers) as scaled_loss:
             scaled_loss.backward()
         self.optimizer.step()
 
@@ -220,23 +239,13 @@ class Unet3dModel(BaseModel):
 
         keys = tuple(self.metric_names) + args
 
-        # old version by numpy
-        # predict = self.predict.clone().detach().cpu().numpy()    # bs C D H W, C=1
-        # label = self.label.clone().detach().cpu().numpy()
-        # metrics = self.get_metrics(predict, label, *self.metric_names, *args, **kwargs)
-        # print(dict(zip(keys, metrics)))
-
         predict = self.predict.clone().detach()
         label = self.label.clone().detach()
         predict = (predict > 0.5).float()
         label = (label > 0.5).float()
         self.metrics = self.get_metrics_soft(predict, label, *self.metric_names, *args, **kwargs)
-        # print(type(self.metrics[0]), self.metrics[0].dtype, self.metrics[0].device,
-        #       self.metrics[0].grad, self.metrics[0].grad_fn)
 
-        # print(dict(zip(keys, self.metrics)))
         if self.opt.DDP:
-            # torch.distributed.barrier()
             for i in range(len(self.metrics)):
                 if isinstance(self.metrics[i], torch.Tensor):
                     self.metrics[i] = reduce_mean(self.metrics[i], torch.distributed.get_world_size())

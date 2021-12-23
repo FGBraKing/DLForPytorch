@@ -14,20 +14,27 @@ from torch.utils.data import DataLoader
 from glob import glob
 from data.dataloads.base_dataset import BaseDataset, TestOnePatientDataset
 from data.utils_data import get_pad_image, get_unpad_image
-from models.modules.segmentation.three_d.unet3d_gn import UNet3D
+# from models.modules.segmentation.three_d.unet3d_V0 import UNet3D
+from models.modules.segmentation.three_d.unet3d_V0 import UNet3D as UNetV0
+from models.modules.segmentation.three_d.unet3d_V1 import UNet3D as UNetV1
+from models.modules.segmentation.three_d.unet3d_V2 import UNet3D as UNetV2
+from models.modules.segmentation.three_d.unet3d_V3 import UNet3D as UNetV3
 from configs.simple_options import get_opt
 from configs.utils_config import pretty_print_opt, get_pretty_opt, get_config
 from utils.forLogs import get_logger
 from utils.others.metrics import BinaryMetrics
-from utils.others.utils import init_seed, init_torch, mkdirs, Timer
+from utils.others.utils import init_seed, init_torch, mkdirs, Timer, print_numpy
 from utils.others.img_io import show_paired_image, show_array_3d, show_volume_label, show_volume_label_predict
 
 
 def test():
     # opt = get_opt(args=['--config_path=configs/defaults/trus_unet3d_test.yaml', '--use_config'], save_log=False)
-    opt_dict = get_config('configs/defaults/trus_unet3d_test.yaml')
+    # opt_dict = get_config('configs/defaults/trus_unet3d_test.yaml')
+    # opt_dict = get_config('configs/defaults/promise_unet3d_test.yaml')
+    opt_dict = get_config('configs/defaults/mrusmr_test.yaml')
     opt = SimpleNamespace(**opt_dict)
-
+    opt.visible_gpu = str(opt.visible_gpu)
+    print('torch.cuda.is_available:', torch.cuda.is_available(), opt.local_gpu, opt.phase, opt.visible_gpu)
     init_torch(gpu_id=opt.visible_gpu, deterministic=opt.deterministic)
 
     do_test(opt)
@@ -43,7 +50,7 @@ def do_test(opt):
 
     log_dir = os.path.join(opt.results_dir, opt.name, opt.phase, opt.test_name)
     mkdirs(log_dir)
-    opt_logger = get_logger(logname='opt_logger', is_save=not opt.DEBUG,
+    opt_logger = get_logger(logname='opt_logger', is_save=not opt.DEBUG and opt.weight_on_dir,
                             save_name=os.path.join(log_dir, 'option.txt'), fmt='%(message)s')
     opt_logger.info(get_pretty_opt(opt))
     get_metrics = BinaryMetrics()
@@ -53,7 +60,11 @@ def do_test(opt):
     if opt.weight_on_dir:
         weight_paths = glob(os.path.join(opt.weight_dir, '*.pth'))
     else:
-        weight_paths = [opt.weight_path]
+        # weight_paths = [opt.weight_path]
+        weight_paths = [os.path.join(opt.weight_dir, opt.weight_name)]
+    if len(weight_paths) == 0:
+        opt_logger.info(f'there is a empty weight_dir!')
+        return
     print('weight_paths ready')
 
     test_dataset_class = create_test_dataset(opt.dataset_name)
@@ -62,7 +73,7 @@ def do_test(opt):
     test_network = define_net(opt)
     print('network created', type(test_network))
 
-    best_dice = 0.8
+    best_dice = 0.0
     best_weight = weight_paths[0]
     for weight_path in weight_paths:
         test_network = load_weithts(test_network, weight_path, device, name='segment')
@@ -80,6 +91,7 @@ def do_test(opt):
         all_result_metrics = []
         all_result_visuals = []
         for patient_id, data in enumerate(test_dataset):
+            volume_name = os.path.basename(data['volume_path']).split('.')[0]
             #  {'volume': volume, 'label': label, 'volume_path': volume_path, 'label_path': label_path}
             one_patient_dataset = TestOnePatientDataset(data['volume'], opt)    # CDHW
             print('one_patient_dataset:{}'.format(len(one_patient_dataset)))
@@ -92,12 +104,13 @@ def do_test(opt):
                                          batch_size=opt.batch_size,
                                          shuffle=False,
                                          num_workers=opt.num_threads,
-                                         pin_memory=False,
+                                         pin_memory=True,
                                          drop_last=False)
             print('test_dataloader:{}'.format(len(test_dataloader)))
 
             with torch.no_grad():
                 sub_segments = test_by_patient(test_dataloader, test_network)    # tensor NCDHW
+                sub_segments = torch.sigmoid(sub_segments)
                 segment_regain_dict = compute_segment_by_patient(sub_segments,  dataset_info, crop_num_list, axis_tuple)
 
                 segment = segment_regain_dict['padded'] if opt.compute_pad else segment_regain_dict['origin']
@@ -113,7 +126,7 @@ def do_test(opt):
                                                      get_metrics=get_metrics, need_key=True)
                 visual = compute_visual_by_patient(segment, label, *opt.visual_names, **dataset_volumes)
                 show_result_by_patient(opt, patient_id, metrics=metrics, visuals=visual, message_logger=message_logger,
-                                       vis_name=checkpoint_name+f'id-{patient_id}')
+                                       vis_name=checkpoint_name[:6]+volume_name)
                 all_result_metrics.append(metrics)
                 all_result_visuals.append(visual)
 
@@ -152,11 +165,12 @@ def create_test_dataset(dataset_name):
 
 
 def define_net(opt):
-    net = UNet3D(in_channels=opt.input_nc,
-                 out_channels=opt.output_nc,
-                 final_sigmoid=True,
-                 conv_layer_order=opt.conv_order,
-                 init_channel_number=opt.init_channel_number)
+    # net = UNet3D(in_channels=opt.input_nc,
+    #              out_channels=opt.output_nc,
+    #              final_sigmoid=True,
+    #              conv_layer_order=opt.conv_order,
+    #              init_channel_number=opt.init_channel_number)
+    net = UNetV1(in_channels=opt.input_nc, out_channels=opt.output_nc, init_features=opt.init_channel_number)  # cbr
     net = net.cuda()
 
     if opt.verbose:
@@ -210,7 +224,11 @@ def compute_segment_by_patient(sub_volumes, dataset_info, crop_num_list, axises)
     for ind, axis in enumerate(axises):
         shift_axis = tuple([a+1 for a in axis])
         sub_volumes_mask[:, ind+1, ...] = torch.flip(sub_volumes_mask[:, ind+1, ...], dims=shift_axis)
-    sub_volumes_mask = torch.sum(sub_volumes_mask, dim=1)         # NDHW  , keepdim=True
+    print(sub_volumes_mask.size())
+    try:
+        sub_volumes_mask = torch.sum(sub_volumes_mask, dim=1)         # NDHW  , keepdim=True
+    except RuntimeError:
+        sub_volumes_mask = torch.sum(sub_volumes_mask.cpu(), dim=1)         # NDHW  , keepdim=True
     sub_volumes_mask = torch.where(sub_volumes_mask > sub_volumes.shape[1]/2, 1, 0)
 
     # combine slide
@@ -220,7 +238,9 @@ def compute_segment_by_patient(sub_volumes, dataset_info, crop_num_list, axises)
 
     seg_mask = torch.zeros(size=pad_shape, dtype=torch.int32, device=sub_volumes_mask.device)
     threshold = torch.zeros(size=pad_shape, dtype=torch.float32, device=sub_volumes_mask.device)
-    std_ones = torch.ones_like(sub_volumes_mask[0], dtype=torch.int32)
+    std_weights = torch.ones_like(sub_volumes_mask[0], dtype=torch.int32, device=sub_volumes_mask.device)
+    # if False:
+    #     std_weights = get_gauusian_kernel_v2(sub_volumes_mask[0].shape)
 
     ndim = len(crop_num_list)
     assert ndim == len(crop_size) == len(stride) == len(crop_num_list)
@@ -229,9 +249,9 @@ def compute_segment_by_patient(sub_volumes, dataset_info, crop_num_list, axises)
         for i in range(crop_num_list[0]):
             for j in range(crop_num_list[1]):
                 seg_mask[i*stride[0]:i*stride[0]+crop_size[0],
-                         j*stride[1]:j*stride[1]+crop_size[1]] += sub_volumes_mask[i*crop_num_list[1]+j]
+                         j*stride[1]:j*stride[1]+crop_size[1]] += sub_volumes_mask[i*crop_num_list[1]+j] * std_weights
                 threshold[i*stride[0]:i*stride[0]+crop_size[0],
-                          j*stride[1]:j*stride[1]+crop_size[1]] += std_ones
+                          j*stride[1]:j*stride[1]+crop_size[1]] += std_weights
     elif ndim == 3:
         for i in range(crop_num_list[0]):
             for j in range(crop_num_list[1]):
@@ -239,11 +259,11 @@ def compute_segment_by_patient(sub_volumes, dataset_info, crop_num_list, axises)
                     seg_mask[i*stride[0]:i*stride[0]+crop_size[0],
                              j*stride[1]:j*stride[1]+crop_size[1],
                              k*stride[2]:k*stride[2]+crop_size[2]] += \
-                        sub_volumes_mask[i*crop_num_list[1]*crop_num_list[2]+j*crop_num_list[2]+k]
+                        sub_volumes_mask[i*crop_num_list[1]*crop_num_list[2]+j*crop_num_list[2]+k] * std_weights
 
                     threshold[i*stride[0]:i*stride[0]+crop_size[0],
                               j*stride[1]:j*stride[1]+crop_size[1],
-                              k*stride[2]:k*stride[2]+crop_size[2]] += std_ones
+                              k*stride[2]:k*stride[2]+crop_size[2]] += std_weights
     else:
         for c in range(crop_num_list[0]):
             for i in range(crop_num_list[1]):
@@ -255,12 +275,12 @@ def compute_segment_by_patient(sub_volumes, dataset_info, crop_num_list, axises)
                             j*stride[2]:j*stride[2]+crop_size[2],
                             k*stride[3]:k*stride[3]+crop_size[3]
                         ] += sub_volumes_mask[c*crop_num_list[1]*crop_num_list[2]*crop_num_list[3] +
-                                              i*crop_num_list[2]*crop_num_list[3] + j*crop_num_list[3] + k]
+                                              i*crop_num_list[2]*crop_num_list[3] + j*crop_num_list[3] + k] * std_weights
                         threshold[
                             c*stride[0]:c*stride[0]+crop_size[0],
                             i*stride[1]:i*stride[1]+crop_size[1],
                             j*stride[2]:j*stride[2]+crop_size[2],
-                            k*stride[3]:k*stride[3]+crop_size[3]] += std_ones
+                            k*stride[3]:k*stride[3]+crop_size[3]] += std_weights
 
     seg_mask = torch.where(seg_mask > threshold/2, 1, 0)
     padded_segment = seg_mask.cpu().numpy()
@@ -281,7 +301,7 @@ def compute_metrics_by_patient(predict, target, *metric_names, get_metrics=None,
         return metrics
 
 
-def compute_visual_by_patient(target, predict, *names, need_key=True, **kwargs):
+def compute_visual_by_patient(predict, target, *names, need_key=True, **kwargs):
     keys = tuple(names)
     visuals = []
     for name in names:
@@ -387,6 +407,24 @@ def combine_and_show_result_all(opt, *args, metrics_list=None, visuals_list=None
     if writer is not None:
         pass
     return total_metrics
+
+
+def get_gauusian_kernel_v2(shape, dtype=None, device=None):
+    dims = len(shape)
+    target = np.zeros(shape, dtype=np.int16)
+    # assert dims in (1, 2, 3, 4)
+    for axis in range(dims):
+        shp = shape[axis]
+
+        # torch.swapaxes 是从1.8.0才开始支持
+        target_tmp = target if axis == 0 else np.swapaxes(target, 0, axis)
+
+        for i in range(shp):
+            val = i if i <= (shp - 1)/2 else (shp - 1) - i
+            target_tmp[i, ...] += val
+
+        target = target_tmp if axis == 0 else np.swapaxes(target, 0, axis)
+    return torch.from_numpy(target)
 
 
 if __name__ == '__main__':

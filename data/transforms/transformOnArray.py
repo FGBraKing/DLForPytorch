@@ -4,7 +4,7 @@ import torch
 import random
 import numpy as np
 import torchvision.transforms as transforms
-
+from itertools import combinations
 from scipy.signal.signaltools import convolve
 from scipy.ndimage.interpolation import map_coordinates, zoom, rotate, shift, affine_transform
 from scipy.ndimage.filters import gaussian_filter, convolve, median_filter
@@ -30,7 +30,7 @@ from data.transforms.transformOnSample import RandomFlip, RandomCrop, RandomRota
 
 # ----------------------------------------------function----------------------------------------------
 # --------------------------------custom
-def standardize(array, mean, std, eps=1e-6):
+def standardize(array, mean, std, eps=1e-7):
     return (array - mean) / (std + eps)
 
 
@@ -779,7 +779,7 @@ class ContrastAugmentationTransform:
 
         return data
 
-    def _get_factor(self, size: int=1):
+    def _get_factor(self, size: int = 1):
         if callable(self.contrast_range):
             factor = np.array([self.contrast_range() for _ in range(size)])
         else:
@@ -904,7 +904,7 @@ class GammaTransform:
                 rnge = data.max() - minm
                 data = np.power(((data - minm) / float(rnge + self.epsilon)), gamma) * rnge + minm
                 if self.retain_stats:
-                    data = data - data.mean
+                    data = data - data.mean()
                     data = data / (data.std() + 1e-8) * sd
                     data = data + mn
 
@@ -1198,6 +1198,8 @@ class Transformer:
         self.preprocess = opt.preprocess
         if getattr(opt, 'random_state', None) is not None:
             self.random_state = opt.random_state
+        elif getattr(opt, 'seed', None) is not None:
+            self.random_state = np.random.RandomState(seed=opt.seed)
 
     def standard_transform(self):
         '''
@@ -1206,19 +1208,23 @@ class Transformer:
         '''
         opt = self.opt
         trans_list = []
-        # trans_list.append(RandomScaleTransform(self.random_state, order_data=opt.order_data, order_seg=opt.order_seg,
-        #                                        scale=(0.7, 1.4), p_scale_per_sample=0.2,
-        #                                        p_independent_scale_per_axis=0.5,
-        #                                        independent_scale_for_each_axis=False, with_channel=False))
-        # crop_size_refine = int(np.ceil(np.sqrt(2)*opt.crop_size[2])), \
-        #                    int(np.ceil(np.sqrt(2)*opt.crop_size[1])), opt.crop_size[0]+30
-        # trans_list.append(RandomCropTransform(crop_size=crop_size_refine, with_channel=False))
-        # trans_list.append(RandomRotateTransform(angle_spectrum=[(-15, 15), (-15, 15), (-15, 15)],
-        #                                         axes=[(2, 1), (2, 0), (1, 0)],      # z y x
-        #                                         p_per_sample=0.2, p_rot_per_axis=0.5, with_channel=False))
+        trans_list.append(ElasticDeformTransform(self.random_state,
+                                                 order_data=opt.order_data, order_seg=opt.order_seg,
+                                                 alpha=(0., 900.), sigma=(9., 13.),
+                                                 p_el_per_sample=0.2,
+                                                 with_channel=False))
+        trans_list.append(RandomScaleTransform(self.random_state,
+                                               order_data=opt.order_data, order_seg=opt.order_seg,
+                                               scale=opt.scale_range, p_scale_per_sample=0.2,
+                                               p_independent_scale_per_axis=1, independent_scale_for_each_axis=False,
+                                               with_channel=False))
+        trans_list.append(RandomRotateTransform(angle_spectrum=[(-opt.rot_angle_spectrum, opt.rot_angle_spectrum)],
+                                                axes=list(combinations(np.unique(opt.rot_axes), 2)),
+                                                p_per_sample=0.2, p_rot_per_axis=1, with_channel=False))
         trans_list.append(CenterCropTransform(opt.crop_size[::-1], with_channel=False))
-        trans_list.append(Rot90Transform(num_rot=(1, 2, 3), axes=(0, 1, 2), p_per_sample=0.5, with_channel=False))
-        trans_list.append(MirrorTransform(axes=(0, 1, 2), p_per_sample=1, with_channel=False))
+        trans_list.append(Rot90Transform(num_rot=(1, 2, 3), axes=np.unique(opt.rot_axes),
+                                         p_per_sample=0.5, with_channel=False))
+        trans_list.append(MirrorTransform(axes=opt.mirror_axes, p_per_sample=1, with_channel=False))
         return ComposeForSample(trans_list)
 
     def custom_transform(self):
@@ -1230,33 +1236,38 @@ class Transformer:
         trans_list = []
         preprocess = self.preprocess.split('_')
         if 'elastic' in preprocess:
-            # TODO :elastic_alpha和opt.elastic_sigma需要根据实际数据测试得到
             trans_list.append(ElasticDeformTransform(self.random_state,
                                                      order_data=opt.order_data, order_seg=opt.order_seg,
                                                      alpha=opt.elastic_alpha, sigma=opt.elastic_sigma,
-                                                     p_el_per_sample=0.5,
+                                                     p_el_per_sample=0.2,
                                                      with_channel=False))
         if 'resize' in preprocess:
             trans_list.append(ResizeTransform(target_size=opt.target_size[::-1],
                                               order=opt.order_data, order_seg=opt.order_seg,
                                               with_channel=False))
         if 'zoom' in preprocess:
-            trans_list.append(ZoomTransform(zoom_factors=opt.scale[::-1], order=opt.order_data, order_seg=opt.order_seg,
+            trans_list.append(ZoomTransform(zoom_factors=opt.scale[::-1],
+                                            order=opt.order_data, order_seg=opt.order_seg,
                                             with_channel=False))
         if 'randomscale' in preprocess:
             trans_list.append(RandomScaleTransform(self.random_state,
                                                    order_data=opt.order_data, order_seg=opt.order_seg,
-                                                   scale=(0.7, 1.4), p_scale_per_sample=0.2,
-                                                   p_independent_scale_per_axis=0.5,
-                                                   independent_scale_for_each_axis=False, with_channel=False))
+                                                   scale=opt.scale_range, p_scale_per_sample=0.2,
+                                                   p_independent_scale_per_axis=1, independent_scale_for_each_axis=False,
+                                                   with_channel=False))
         if 'randomcrop' in preprocess:
-            crop_size = opt.crop_size
-            crop_size_refine = int(np.ceil(np.sqrt(2)*crop_size[2])), int(np.ceil(np.sqrt(2)*crop_size[1])), crop_size[0]+30
+            # crop_size = opt.crop_size
+            # x*cos(t)+y*sin(t)
+            # int(np.ceil(np.sqrt(2)*crop_size[2]))
+            crop_size_refine = int(np.ceil(np.sqrt(np.sum(np.power(opt.crop_size, 2)))))
+            if opt.crop_size[0]*len(opt.crop_size) != np.sum(opt.crop_size):
+                crop_size_refine = [opt.crop_size[-1]] + [crop_size_refine]*(len(opt.crop_size)-1)
             trans_list.append(RandomCropTransform(crop_size=crop_size_refine, with_channel=False))
         if 'ranomrotate' in preprocess:
-            trans_list.append(RandomRotateTransform(angle_spectrum=[(-15, 15), (-15, 15), (-15, 15)],
-                                                    axes=[(2, 1), (2, 0), (1, 0)],      # z y x
-                                                    p_per_sample=0.2, p_rot_per_axis=0.5, with_channel=False))
+            # [(-15, 15), (-15, 15), (-15, 15)]
+            trans_list.append(RandomRotateTransform(angle_spectrum=[(-opt.rot_angle_spectrum, opt.rot_angle_spectrum)],
+                                                    axes=list(combinations(np.unique(opt.rot_axes), 2)),
+                                                    p_per_sample=0.2, p_rot_per_axis=1, with_channel=False))
         if 'centercrop' in preprocess:
             trans_list.append(CenterCropTransform(opt.crop_size[::-1], with_channel=False))
         if 'transposeaxes' in preprocess:
@@ -1267,9 +1278,10 @@ class Transformer:
                                                    p_per_sample=1, p_per_channel=0.5,
                                                    border_value=0, with_channel=False))
         if 'rot90' in preprocess:
-            trans_list.append(Rot90Transform(num_rot=(1, 2, 3), axes=(0, 1, 2), p_per_sample=0.5, with_channel=False))
+            trans_list.append(Rot90Transform(num_rot=(1, 2, 3), axes=np.unique(opt.rot_axes),
+                                             p_per_sample=0.5, with_channel=False))
         if 'mirror' in preprocess:
-            trans_list.append(MirrorTransform(axes=(0, 1, 2), p_per_sample=1, with_channel=False))
+            trans_list.append(MirrorTransform(axes=opt.mirror_axes, p_per_sample=1, with_channel=False))
         return ComposeForSample(trans_list)
 
     def standard_transform_old(self):
@@ -1363,7 +1375,7 @@ def get_post_transform(opt):
     preprocess = opt.preprocess.split('_')
     if 'gaussianNoise' in preprocess:
         transform_list.append(GaussianNoiseTransform(opt.random_state,
-                                                     noise_variance=(0, 0.1),
+                                                     noise_variance=opt.g_noise_variance,
                                                      p_per_sample=0.15,
                                                      with_channel=False))
     if 'GaussianBlur' in preprocess:
@@ -1373,7 +1385,7 @@ def get_post_transform(opt):
     if 'brightness' in preprocess:
         transform_list.append(BrightnessTransform(opt.random_state,
                                                   mu=opt.bright_mu, sigma=opt.bright_sigma, per_channel=True,
-                                                  p_per_sample=0.5, p_per_channel=1.,
+                                                  p_per_sample=0.15, p_per_channel=0.5,
                                                   with_channel=False))
     if 'BrightnessMultiplicative' in preprocess:
         transform_list.append(BrightnessMultiplicativeTransform(multiplier_range=(0.7, 1.3),
@@ -1392,7 +1404,7 @@ def get_post_transform(opt):
     if 'gammatransform' in preprocess:
         transform_list.append(GammaTransform(opt.random_state,
                                              gamma_range=(0.7, 1.5), invert_image=False,
-                                             per_channel=False, retain_stats=False, p_per_sample=0.15,
+                                             per_channel=False, retain_stats=True, p_per_sample=0.3,
                                              with_channel=False))
 
     # transform_list.append(ToTensor(expand_dims=True))

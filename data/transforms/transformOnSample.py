@@ -14,6 +14,7 @@ from batchgenerators.augmentations.spatial_transformations import augment_spatia
     augment_mirroring, augment_transpose_axes, augment_zoom, augment_resize, augment_rot90
 from batchgenerators.augmentations.utils import interpolate_img
 from batchgenerators.augmentations.crop_and_pad_augmentations import pad_nd_image_and_seg, crop
+from batchgenerators.transforms.spatial_transforms import augment_spatial
 
 
 # ----------------------------------------- CUSTOM TRANSFORM ------------------------------------------------------
@@ -489,7 +490,7 @@ class RandomRotateTransform:
 
 class ElasticDeformTransform:
     def __init__(self, random_state, order_data=3, order_seg=0,
-                 alpha=(0., 1000.), sigma=(10., 13.), p_el_per_sample=1, with_channel=False):
+                 alpha=(0., 900.), sigma=(10., 13.), p_el_per_sample=1, with_channel=False):
         '''
         :param random_state:
         :param order_data:
@@ -514,8 +515,8 @@ class ElasticDeformTransform:
         else:
             shape = data.shape
 
-        data_result = np.zeros_like(data, dtype=np.float32)
-        seg_result = None
+        data_result = data  # np.zeros_like(data, dtype=np.float32)
+        seg_result = seg
 
         if self.random_state.uniform() < self.p_el_per_sample:
             tmp = tuple([np.arange(i) for i in shape])

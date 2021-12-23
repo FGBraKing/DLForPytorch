@@ -18,6 +18,7 @@ class MultiStepLRScheduler(Scheduler):
                  decay_rate: float = 1.,
                  warmup_t=0,
                  warmup_lr_init=0,
+                 warmup_prefix=False,
                  t_in_epochs=True,
                  noise_range_t=None,
                  noise_pct=0.67,
@@ -34,6 +35,7 @@ class MultiStepLRScheduler(Scheduler):
         self.decay_rate = decay_rate
         self.warmup_t = warmup_t
         self.warmup_lr_init = warmup_lr_init
+        self.warmup_prefix = warmup_prefix
         self.t_in_epochs = t_in_epochs
         if self.warmup_t:
             self.warmup_steps = [(v - warmup_lr_init) / self.warmup_t for v in self.base_values]
@@ -50,6 +52,8 @@ class MultiStepLRScheduler(Scheduler):
         if t < self.warmup_t:
             lrs = [self.warmup_lr_init + t * s for s in self.warmup_steps]
         else:
+            if self.warmup_prefix:
+                t = t - self.warmup_t
             lrs = [v * (self.decay_rate ** self.get_curr_decay_steps(t)) for v in self.base_values]
         return lrs
 

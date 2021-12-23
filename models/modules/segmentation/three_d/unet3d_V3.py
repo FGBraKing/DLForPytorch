@@ -1,8 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-from models.auxiliary_funs import print_model_parm_nums, print_model_parm_flops
+# 支持各向异性pooling, 更改了channels的数量
 
 
 def conv3x3(in_planes, out_planes, stride=1,
@@ -71,7 +70,7 @@ class Up(nn.Module):
             if trilinear:
                 self.up = nn.Upsample(scale_factor=2, mode='trilinear', align_corners=True)
             else:
-                self.up = nn.ConvTranspose3d(in_ch // 2, in_ch // 2, kernel_size=2, stride=2)
+                self.up = nn.ConvTranspose3d(in_ch, in_ch // 2, kernel_size=2, stride=2)
         else:
             self.up = nn.Upsample(scale_factor=(1, 2, 2), mode='trilinear', align_corners=True)
 
@@ -107,25 +106,22 @@ class outconv(nn.Module):
 
 
 class UNet3D(nn.Module):
-    def __init__(self, in_channels, n_classes, final_sigmoid=True):
+    def __init__(self, in_channels, n_classes, init_features=64, trilinear=True):
         super(UNet3D, self).__init__()
-        self.inc = inconv(in_ch=in_channels, out_ch=64)
 
-        self.down1 = Down(64, 128, slice_down=False)
-        self.down2 = Down(128, 256, slice_down=True)
-        self.down3 = Down(256, 512, slice_down=False)
-        self.down4 = Down(512, 512, slice_down=True)                    # 512 1024
-        self.up1 = Up(1024, 256, trilinear=True, slice_up=True)         # 1024+512, 512
-        self.up2 = Up(512, 128, trilinear=True, slice_up=False)
-        self.up3 = Up(256, 64, trilinear=True, slice_up=True)
-        self.up4 = Up(128, 64, trilinear=True, slice_up=False)
+        self.inc = inconv(in_ch=in_channels, out_ch=init_features)
 
-        self.outc = outconv(64, n_classes)
+        self.down1 = Down(init_features, init_features*2, slice_down=True)
+        self.down2 = Down(init_features*2, init_features*4, slice_down=True)
+        self.down3 = Down(init_features*4, init_features*8, slice_down=True)
+        factor = 2 if trilinear else 1
+        self.down4 = Down(init_features*8, init_features*16//factor, slice_down=True)
+        self.up1 = Up(init_features*16, init_features*8//factor, trilinear=trilinear, slice_up=True)
+        self.up2 = Up(init_features*8, init_features*4//factor, trilinear=trilinear, slice_up=True)
+        self.up3 = Up(init_features*4, init_features*2//factor, trilinear=trilinear, slice_up=True)
+        self.up4 = Up(init_features*2, init_features, trilinear=trilinear, slice_up=True)
 
-        if final_sigmoid:
-            self.final_activation = nn.Sigmoid()
-        else:
-            self.final_activation = nn.Softmax(dim=1)
+        self.outc = outconv(init_features, n_classes)
 
     # def forward(self, x, idx):
     def forward(self, x):
@@ -143,21 +139,19 @@ class UNet3D(nn.Module):
 
         x = self.outc(x)
 
-        if not self.training:
-            x = self.final_activation(x)
-
         return x
 
 
 if __name__ == '__main__':
+    from torchsummary import summary
+    from models.auxiliary_funs import print_model_parm_nums, print_model_parm_flops
 
     device = torch.device(f"cuda:{0}" if torch.cuda.is_available() else 'cpu')
-    net = UNet3D(in_channels=1, n_classes=1, final_sigmoid=True).to(device)
+    net = UNet3D(in_channels=1, n_classes=1, init_features=32, trilinear=True).to(device)
     inputs = torch.rand((16, 1, 32, 64, 64), requires_grad=True).to(device)
     print_model_parm_nums(net)  # 40.15M
     print_model_parm_flops(net, inputs, need_idx=False)  # 751.84G
 
-    from torchsummary import summary
     summary(net, input_size=(1, 32, 128, 128), batch_size=1, device='cuda')
 
     for name, module in net.named_modules():  # named_children():

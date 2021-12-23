@@ -20,6 +20,7 @@ class StepLRScheduler(Scheduler):
                  decay_rate: float = 1.,
                  warmup_t=0,
                  warmup_lr_init=0,
+                 warmup_prefix=False,
                  t_in_epochs=True,
                  noise_range_t=None,
                  noise_pct=0.67,
@@ -27,19 +28,6 @@ class StepLRScheduler(Scheduler):
                  noise_seed=42,
                  initialize=True,
                  ) -> None:
-        '''
-        :param optimizer:
-        :param decay_t: 几个epoch衰减一次
-        :param decay_rate:
-        :param warmup_t:
-        :param warmup_lr_init:
-        :param t_in_epochs:
-        :param noise_range_t:
-        :param noise_pct:
-        :param noise_std:
-        :param noise_seed:
-        :param initialize:
-        '''
         super().__init__(
             optimizer, param_group_field="lr",
             noise_range_t=noise_range_t, noise_pct=noise_pct, noise_std=noise_std, noise_seed=noise_seed,
@@ -49,6 +37,7 @@ class StepLRScheduler(Scheduler):
         self.decay_rate = decay_rate
         self.warmup_t = warmup_t
         self.warmup_lr_init = warmup_lr_init
+        self.warmup_prefix = warmup_prefix
         self.t_in_epochs = t_in_epochs
         if self.warmup_t:
             self.warmup_steps = [(v - warmup_lr_init) / self.warmup_t for v in self.base_values]
@@ -60,6 +49,8 @@ class StepLRScheduler(Scheduler):
         if t < self.warmup_t:
             lrs = [self.warmup_lr_init + t * s for s in self.warmup_steps]
         else:
+            if self.warmup_prefix:
+                t = t - self.warmup_t
             lrs = [v * (self.decay_rate ** (t // self.decay_t)) for v in self.base_values]
         return lrs
 

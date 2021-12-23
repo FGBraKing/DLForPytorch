@@ -3,6 +3,7 @@ import numpy as np
 import torch.utils.data as data
 from abc import ABC, abstractmethod
 from ..utils_data import get_pad_image, get_flip_volumes
+from data.utils_data import nii_loader, h5_loader
 
 
 class BaseDataset(data.Dataset, ABC):
@@ -34,8 +35,8 @@ class CustomDataset(BaseDataset):
         super(CustomDataset, self).__init__(opt)
         self.paths = []  # should be [{'volume':volume,'label':label}, ...]
         self.data_size = len(self.paths)
-
         self.loader = None
+
         self.pre_transform = None
         self.transform = None
         self.post_transform = None
@@ -82,6 +83,18 @@ class CustomDataset(BaseDataset):
         if self.post_transform:
             volume = self.post_transform(volume)
         return volume
+
+
+class NIIDataset(CustomDataset):
+    def __init__(self, opt):
+        super(NIIDataset, self).__init__(opt)
+        self.loader = nii_loader
+
+
+class H5Dataset(CustomDataset):
+    def __init__(self, opt):
+        super(H5Dataset, self).__init__(opt)
+        self.loader = h5_loader
 
 
 class TestOnePatientDataset(data.Dataset):

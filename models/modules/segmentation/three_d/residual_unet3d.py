@@ -201,3 +201,30 @@ class UNet(nn.Module):
         out = out_pred + ds1_ds2_sum_upscale_ds3_sum_upscale
         seg_layer = out
         return seg_layer
+
+
+if __name__ == '__main__':
+    from torchsummary import summary
+    from models.auxiliary_funs import print_model_parm_nums, print_model_parm_flops
+
+    device = torch.device(f"cuda:{0}" if torch.cuda.is_available() else 'cpu')
+    net = UNet(in_channels=1, n_classes=1, base_n_filter=8).to(device)
+    for name, module in net.named_modules():  # named_children():
+        print(name, type(module))
+    print('---------------------------------------------------------')
+    # for name, layer in net._modules.items():
+    #     print(name, type(layer))
+    print('---------------------------------------------------------')
+    for name, layer in net.named_children():
+        print(name, type(layer))
+
+    for k, v in net.named_parameters():
+        print(k, v.size())
+
+        print(v.nelement())
+
+    inputs = torch.rand((16, 1, 64, 64, 64), requires_grad=True).to(device)
+    print_model_parm_nums(net)  # 40.15M
+    print_model_parm_flops(net, inputs, need_idx=False)  # 751.84G
+
+    summary(net, input_size=(1, 32, 96, 96), batch_size=1, device='cuda')

@@ -81,8 +81,8 @@ def train_ddp(args):
 def main():
     # opt = ProjectOptions().parse(True)   # get training options
     # opt = get_opt(args=None)
+    opt = get_opt(args=['--config_path=configs/defaults/promise12_unet3d.yaml', '--use_config'])
     # opt = get_opt(args=['--config_path=configs/defaults/trus_unet3d.yaml', '--use_config'])
-    opt = get_opt(args=['--config_path=configs/defaults/trus_unet3d.yaml', '--use_config'])
     print('option get ready')
 
     if opt.DDP:

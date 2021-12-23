@@ -6,7 +6,7 @@ from torch.utils import data
 from collections import OrderedDict
 from torchvision.transforms import transforms
 
-from models.modules.segmentation.three_d.unet3d_gn import UNet3D
+from models.modules.segmentation.three_d.unet3d_V0 import UNet3D
 from data.utils_data import h5_loader
 from utils.others.utils import Timer, convert_str_to_list
 from utils.others.metrics import BinaryMetrics, MutiClassMetrics

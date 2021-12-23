@@ -33,6 +33,7 @@ def init_torch(gpu_id='0', deterministic=False):
     assert torch.cuda.is_available()
     torch.backends.cudnn.enabled = True
     if deterministic:
+        # torch.use_deterministic_algorithms(True)
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
     else:
@@ -418,3 +419,35 @@ def get_bbox_from_mask(mask, outside_value=0):
     minyidx = int(np.min(mask_voxel_coords[2]))
     maxyidx = int(np.max(mask_voxel_coords[2])) + 1
     return [[minzidx, maxzidx], [minxidx, maxxidx], [minyidx, maxyidx]]
+
+
+def get_gauusian_kernel(shape):
+    if len(shape) == 2:
+        X, Y = shape
+        target = np.zeros(shape, dtype=np.float32)
+        for x in range(X):
+            x_i = x if x <= (X - 1)/2 else (X - 1) - x
+            for y in range(Y):
+                y_i = y if y <= (Y - 1)/2 else (Y - 1) - y
+                target[x, y] = x_i + y_i
+        # t_max = (X - 1)//2 + (Y - 1)//2
+        # assert t_max == target.max()
+        # target = target / t_max
+        return target
+
+
+def get_gauusian_kernel_v2(shape):
+    dims = len(shape)
+    target = np.zeros(shape, dtype=np.float32)
+    # assert dims in (1, 2, 3, 4)
+    for axis in range(dims):
+        shp = shape[axis]
+
+        target_tmp = target if axis == 0 else np.swapaxes(target, 0, axis)
+
+        for i in range(shp):
+            val = i if i <= (shp - 1)/2 else (shp - 1) - i
+            target_tmp[i, ...] += val
+
+        target = target_tmp if axis == 0 else np.swapaxes(target, 0, axis)
+    return target

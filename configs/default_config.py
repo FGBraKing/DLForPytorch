@@ -78,9 +78,15 @@ _C.init_channel_number = None
 _C.up_interpolate = None
 _C.conv_order = None
 # loss
+_C.loss_name = 'combo'
+_C.loss_alpha = None
+_C.loss_beta = None
+_C.loss_gamma = None
+_C.loss_weight = None
+_C.loss_eps = 1e-7
+_C.loss_smooth = None
 _C.reduction = None
 _C.ignore_index = None
-_C.smooth = None
 # initialization
 _C.init_type = None
 _C.init_gain = None
@@ -96,11 +102,22 @@ _C.momentum = 0.9
 _C.beta1 = 0.9
 # scheduler
 _C.lr_policy = None
+_C.lr_noise = None
+_C.lr_noise_pct = 0.67
+_C.lr_noise_std = 1.
+_C.warmup_epochs = None
+_C.warmup_lr = None
+_C.warmup_prefix = True
+_C.lr_cycle_mul = None
+_C.lr_cycle_decay = None
+_C.lr_cycle_limit = None
+_C.cooldown_epochs = 5
+_C.min_lr = 1e-8
 _C.decay_epochs = None
 _C.decay_rate = None
-_C.warmup_lr = None
-_C.warmup_epochs = None
-_C.lr_noise = None
+_C.lr_k_decay = 1.0
+_C.eval_metric = ''
+_C.patience_epochs = 20
 # ---------------------------------------------------------------------------- #
 # model
 # ---------------------------------------------------------------------------- #
@@ -139,6 +156,8 @@ _C.with_tensorboard = True
 _C.with_visdom = False
 _C.save_log = True
 _C.save_visuals = False
+_C.save_only_latest = True
+_C.save_visuals_frep = 1
 
 # visdom
 _C.visdom_server = '172.21.16.17:25555'

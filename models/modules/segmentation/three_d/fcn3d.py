@@ -4,7 +4,7 @@ import numpy as np
 
 
 class FCN_Net(nn.Module):
-    def __init__(self, in_channels =1,n_class = 1):
+    def __init__(self, in_channels =1, n_class = 1):
         super().__init__()
         # conv1
         self.conv1_1 = nn.Conv3d(in_channels, 8, 3, padding=60)
@@ -160,3 +160,32 @@ class FCN_Net(nn.Module):
         h = self.upscore8(h) # dim: 88^3
         h = h[:, :, 31:31 + x.size()[2], 31:31 + x.size()[3], 31:31 + x.size()[4]].contiguous()
         return h
+
+
+if __name__ == '__main__':
+    from torchsummary import summary
+    from models.auxiliary_funs import print_model_parm_nums, print_model_parm_flops
+
+    device = torch.device(f"cuda:{0}" if torch.cuda.is_available() else 'cpu')
+    net = FCN_Net(in_channels=1, n_class=1).to(device)
+    for name, module in net.named_modules():  # named_children():
+        print(name, type(module))
+    print('---------------------------------------------------------')
+    # for name, layer in net._modules.items():
+    #     print(name, type(layer))
+    print('---------------------------------------------------------')
+    for name, layer in net.named_children():
+        print(name, type(layer))
+
+    for k, v in net.named_parameters():
+        print(k, v.size())
+
+        print(v.nelement())
+
+    inputs = torch.rand((16, 1, 64, 64, 64), requires_grad=True).to(device)
+    print_model_parm_nums(net)  # 40.15M
+    print_model_parm_flops(net, inputs, need_idx=False)  # 751.84G
+
+    summary(net, input_size=(1, 128, 128, 128), batch_size=1, device='cuda')
+    # onnx_path = r"/home/lf/raid_lf/PROJECT/DLForPytorch/traces/network_visualization/unet3d_v1.onnx"
+    # torch.onnx.export(net, inputs, onnx_path)

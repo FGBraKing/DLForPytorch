@@ -1,4 +1,4 @@
-from .segmentation.three_d.unet3d_gn import UNet3D
+from .segmentation.three_d.vnet3d import VNet
 # from .byoanet import *
 # from .byobnet import *
 # from .cait import *

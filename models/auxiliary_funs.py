@@ -345,6 +345,11 @@ def pad_shape(shape, must_be_divisible_by):
     return new_shp
 
 
+def get_number_of_learnable_parameters(model):
+    model_parameters = filter(lambda p: p.requires_grad, model.parameters())
+    return sum([np.prod(p.size()) for p in model_parameters])
+
+
 # -------------------------------------------class-------------------------------------------------------
 class ArgMax(nn.Module):
 
@@ -456,7 +461,42 @@ def flatten_by_class(tensor):
         return tensor.view(1, -1)
 
 
+def expand_as_one_hot(input, C, ignore_index=None):
+    """
+    Converts NxSPATIAL label image to NxCxSPATIAL, where each label gets converted to its corresponding one-hot vector.
+    It is assumed that the batch dimension is present.
+    Args:
+        input (torch.Tensor): 3D/4D input image
+        C (int): number of channels/labels
+        ignore_index (int): ignore index to be kept during the expansion
+    Returns:
+        4D/5D output torch.Tensor (NxCxSPATIAL)
+    """
+    assert input.dim() == 4
+
+    # expand the input tensor to Nx1xSPATIAL before scattering
+    input = input.unsqueeze(1)
+    # create output tensor shape (NxCxSPATIAL)
+    shape = list(input.size())
+    shape[1] = C
+
+    if ignore_index is not None:
+        # create ignore_index mask for the result
+        mask = input.expand(shape) == ignore_index
+        # clone the src tensor and zero out ignore_index in the input
+        input = input.clone()
+        input[input == ignore_index] = 0
+        # scatter to get the one-hot tensor
+        result = torch.zeros(shape).to(input.device).scatter_(1, input, 1)
+        # bring back the ignore_index in the result
+        result[mask] = ignore_index
+        return result
+    else:
+        # scatter to get the one-hot tensor
+        return torch.zeros(shape).to(input.device).scatter_(1, input, 1)
+
 # --------------------------------------------api-----------------------------------------------------------------
+
 
 def get_activation(activation, **kwargs):
     if str(activation).lower() == "relu":

@@ -84,6 +84,7 @@ class ProjectOptions:
         parser.add_argument('--crop_size', type=str, default='128,128,32', help='the crop size of slide  windows')
         parser.add_argument('--target_size', type=str, default='128,128,128', help='the target size ')
         parser.add_argument('--scale', type=str, default='1.,1.,1.', help='the scale of target size')
+        parser.add_argument('--rot_axes', type=str, default='0,1,2', help='the rot90 axes')
         parser.add_argument('--bright_mu', type=float, default=0.0,  help='brightness')
         parser.add_argument('--bright_sigma', type=float, default=0.5,  help='brightness')
         parser.add_argument('--elastic_alpha', type=str, default='0., 1000.',  help='ElasticDeformTransform ')
@@ -110,9 +111,15 @@ class ProjectOptions:
         parser.add_argument('--up_interpolate', action='store_true', help='upsample_interpolate')
         parser.add_argument('--conv_order', type=str, default='crb', help='# of the order of conv layer in the 3d-unet')
         # loss parameters
+        parser.add_argument('--loss_name', type=str, default='combo', help='loss  name')
+        parser.add_argument('--loss_eps', type=float, default=1e-7, help='loss function eps')
+        parser.add_argument('--loss_smooth', type=float, default=1., help='loss function smooth')
+        parser.add_argument('--loss_alpha', type=float, default=1., help='loss function alpha')
+        parser.add_argument('--loss_beta', type=float, default=1., help='loss function beta')
+        parser.add_argument('--loss_gamma', type=float, default=1., help='loss function gamma')
+        parser.add_argument('--loss_weight', type=float, default=1., help='loss function weight')
         parser.add_argument('--reduction', type=str, default='mean', help='loss reduction')
         parser.add_argument('--ignore_index', type=str, default=None, help='which class should be ignore')
-        parser.add_argument('--smooth', type=float, default=1., help='loss function smooth')
         # initialization parameters
         parser.add_argument('--init_type', type=str, default='kaiming',
                             help='network initialization [normal | xavier | kaiming | orthogonal]')
@@ -138,10 +145,24 @@ class ProjectOptions:
         parser.add_argument('--decay_epochs', type=int, default=100,
                             help='multiply by a gamma every decay_epochs ')
         parser.add_argument('--decay_rate', type=float, default=0.1, help='the base to decay')
+        parser.add_argument('--min_lr', type=float, default=1e-8, help='min_lr')
+        parser.add_argument('--lr_k_decay', type=float, default=1.0, help='lr_k_decay')
+        parser.add_argument('--eval_metric', type=str, default='', help='eval_metric')
+        parser.add_argument('--patience_epochs', type=int, default=20, help='hpatience_epochs')
+
         parser.add_argument('--warmup_lr', type=float, default=1e-7, help='warmup_lr_init')
         parser.add_argument('--warmup_epochs', type=int, default=100, help='how many epoch to warmup')
+        parser.add_argument('--warmup_prefix', action='store_true', help='warmup_prefix')
+
         parser.add_argument('--lr_noise', type=float, default=None,
                             help='the range of epochs for applying noise to lr')
+        parser.add_argument('--lr_noise_pct', type=float, default=0.67, help='lr_noise_pct')
+        parser.add_argument('--lr_noise_std', type=float, default=1.0, help='lr_noise_std')
+
+        parser.add_argument('--lr_cycle_mul', type=float, default=1.0, help='lr_cycle_mul')
+        parser.add_argument('--lr_cycle_decay', type=float, default=1.0, help='lr_cycle_decay')
+        parser.add_argument('--lr_cycle_limit', type=int, default=5, help='lr_cycle_limit')
+        parser.add_argument('--cooldown_epochs', type=int, default=5, help='cooldown_epochs')
         return parser
 
     @staticmethod
@@ -195,6 +216,10 @@ class ProjectOptions:
                             help='whether do_test, on training')
         parser.add_argument('--save_visuals', action='store_true',
                             help='whether to save visuals')
+        parser.add_argument('--save_only_latest', action='store_true',
+                            help='whether to save_only_latest')
+        parser.add_argument('--save_visuals_frep', type=int, default=1,
+                            help='the frep to save visuals')
 
         # visualizer parameters
         parser.add_argument('--with_html', action='store_true',
@@ -324,6 +349,7 @@ class ProjectOptions:
         opt.elastic_sigma = convert_str_to_list(opt.elastic_sigma, split=',', aim_type=float, condition=lambda x: x >= 0)
         opt.shift_mu = convert_str_to_list(opt.shift_mu, split=',', aim_type=float, condition=lambda x: x >= 0)
         opt.shift_sigma = convert_str_to_list(opt.shift_sigma, split=',', aim_type=float, condition=lambda x: x >= 0)
+        opt.rot_axes = convert_str_to_list(opt.rot_axes, split=',', aim_type=int, condition=lambda x: x >= 0)
         if opt.ignore_index is not None:
             opt.ignore_index = convert_str_to_list(opt.ignore_index, split=',', aim_type=int, condition=lambda x: x >= 0)
 

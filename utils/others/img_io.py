@@ -4,11 +4,14 @@ import nibabel as nib
 
 from PIL import Image
 from math import ceil
-from skimage import measure, draw
+from skimage import measure
 from matplotlib import pyplot as plt
 from nibabel.viewers import OrthoSlicer3D
-from mpl_toolkits.mplot3d import Axes3D
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection, Line3DCollection
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+from data.transforms.transformOnArray import normalize, NormalizeRange
+
+to_std_image_uint8 = NormalizeRange(0, 255, np.uint8)
+to_std_image_float32 = NormalizeRange(0, 1, np.float32)
 
 
 # fig = plt.figure()  # an empty figure with no Axes
@@ -95,7 +98,7 @@ def show_image_label(image, label, num=None, figsize=None, cmap='gray', title=No
         plt.show()
 
 
-def show_volume_label(volume, label, add_line=False, **kwargs):
+def show_volume_label(volume, label, interval=1, add_line=False, **kwargs):
     # kwargs: max_num\fix_num\normalize_per\title\col\row
     assert label.ndim == 3, "the dim of the gray volume must be 3 of D H W"
     assert volume.shape == label.shape
@@ -111,17 +114,21 @@ def show_volume_label(volume, label, add_line=False, **kwargs):
     else:
         volume_label = np.concatenate([volume, label], axis=-1)
 
-    show_array_3d(volume_label, **kwargs)
+    show_array_3d(volume_label[::interval, ...], **kwargs)
 
 
-def show_volume_label_predict(volume, label, predict, add_line=False, **kwargs):
+def show_volume_label_predict(volume, label, predict, interval=1, add_line=False, **kwargs):
     assert label.ndim == 3, "the dim of the gray volume must be 3 of D H W"
     assert volume.shape == label.shape == predict.shape
-    label = label.astype(volume.dtype)
-    predict = predict.astype(volume.dtype)
 
-    label = np.where(label > 0.5, np.max(volume), np.min(volume))
-    predict = np.where(predict > 0.5, np.max(volume), np.min(volume))
+    volume = to_std_image_float32(volume)
+    label = to_std_image_float32(label)
+    predict = to_std_image_float32(predict)
+    # label = label.astype(volume.dtype)
+    # predict = predict.astype(volume.dtype)
+    #
+    # label = np.where(label > 0.5, np.max(volume), np.min(volume))
+    # predict = np.where(predict > 0.5, np.max(volume), np.min(volume))
 
     if add_line:
         med_line = np.ones(shape=label.shape[:-1], dtype=volume.dtype) * np.max(volume)
@@ -129,7 +136,7 @@ def show_volume_label_predict(volume, label, predict, add_line=False, **kwargs):
         volume_label_predict = np.concatenate([volume, med_line, label, med_line, predict], axis=-1)
     else:
         volume_label_predict = np.concatenate([volume, label, predict], axis=-1)
-    show_array_3d(volume_label_predict, **kwargs)
+    show_array_3d(volume_label_predict[::interval, ...], **kwargs)
 
 
 def show_array_3d(array, row=5, col=5, title='number', normalize_per=False, fix_num=False, max_num=40, fig_list=[]):
@@ -155,7 +162,7 @@ def show_array_3d(array, row=5, col=5, title='number', normalize_per=False, fix_
                 if i * total + j * col + k < channel:
                     data = array[i * total + j * col + k, :, :]
                     if normalize_per:
-                        from data.transforms.transformOnArray import normalize
+                        # from data.transforms.transformOnArray import normalize
                         data = normalize(data)
                     ax[j][k].imshow(data, cmap='gray')  # f'{i * 25 + j * 5 + k}'
                     ax[j][k].set_title(f'{i * total + j * col + k + 1}', fontsize=5, color='r')
@@ -210,33 +217,6 @@ def plot_3d(image, threshold=-300):
     ax.set_ylim(0, p.shape[1])
     ax.set_zlim(0, p.shape[2])
     plt.show()
-
-
-def draw_outline(img, mask, color=(0, 0, 255)):
-    coef = 255 if np.max(img) < 3 else 1
-    image = (img * coef).astype(np.float32)
-    contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-    # cv2.RETR_EXTERNAL表示图像的外轮廓
-    # binary, contours, h = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    # cv2.findContours(image, mode, method[, contours[, hierarchy[, offset ]]])
-    image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-    cv2.drawContours(image, contours, -1, color, 1)
-    # cv2.imwrite('test.png', image)
-    cv2.imshow("img", image)
-    cv2.waitKey(0)
-
-
-def draw_mask_edge_on_image_skimage(image, mask, color=(0, 0, 255)):
-    coef = 255 if np.max(image) < 3 else 1
-    image = (image * coef).astype(np.float32)
-    contours = measure.find_contours(mask, level=0.5)
-    image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-    for c in contours:
-        c = np.around(c).astype(np.int)
-        image[c[:, 0], c[:, 1]] = np.array(color)
-    # cv2.imwrite('test.png', image)
-    cv2.imshow("img", image)
-    cv2.waitKey(0)
 
 
 def show_array_histogram(array, bins=1000, bin_low=None, bin_high=None, title='gray histogram'):
@@ -312,3 +292,4 @@ def sitk_show(nda, title=None, margin=0.0, dpi=40):
         plt.draw()
         plt.pause(0.1)
         #plt.waitforbuttonpress()
+

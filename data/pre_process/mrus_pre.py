@@ -5,32 +5,29 @@ import random
 import pandas as pd
 import numpy as np
 import SimpleITK as sitk
-from skimage.transform import resize
-from scipy.ndimage.interpolation import map_coordinates
-from utils.others.utils import get_foreground_shape, print_numpy, clip_array, slim_array, convert_str_to_list
+# from skimage.transform import resize
+# from scipy.ndimage.interpolation import zoom
+# from scipy.ndimage.interpolation import map_coordinates
+# from data.transforms.transforms import resize_image_itk, Compose
 from data.pre_process.dataset_pre import DatasetPre
-
-from data.transforms.transforms import resize_image_itk, Compose
 from data.transforms.transformOnArray import standardize
-from scipy.ndimage.interpolation import zoom
-
-from batchgenerators.utilities.file_and_folder_operations import join, save_json, maybe_mkdir_p
 from data.utils_nnunet import generate_dataset_json
-from utils.others.utils import cut_off_outliers, slim_array
+from data.preprocessing import resample_data_or_seg, get_lowres_axis, get_do_separate_z
+from batchgenerators.utilities.file_and_folder_operations import join, save_json, maybe_mkdir_p
+from utils.others.utils import get_foreground_shape, cut_off_outliers, print_numpy, clip_array, slim_array
 
 
 class MrusPre(DatasetPre):
     @staticmethod
-    def addition_process(img, img_info, *args, **kwargs):
-        if 'kit' in kwargs.keys():
-            kit = kwargs['kit']
-        else:
-            kit = 'itk'
-
-        if 'do_separate_z' in kwargs.keys():
-            do_separate_z = kwargs['do_separate_z']
-        else:
-            do_separate_z = False
+    def addition_process(img, img_info, *args, separate_z_anisotropy_threshold=3, **kwargs):
+        '''
+        :param img: DHW
+        :param img_info: origin, direction, spacing
+        :param args:
+        :param separate_z_anisotropy_threshold:
+        :param kwargs: 'do_separate_z','is_label', 'new_spacing'
+        :return:
+        '''
 
         if 'is_label' in kwargs.keys():
             is_label = kwargs['is_label']
@@ -40,83 +37,62 @@ class MrusPre(DatasetPre):
         if 'new_spacing' in kwargs.keys():
             new_spacing = kwargs['new_spacing']
         else:
-            new_spacing = [2, 2, 2]
+            new_spacing = [0.625, 0.625, 1.5]
 
         old_origin = img_info[0]
         old_direction = img_info[1]
         old_spacing = img_info[2]
 
-        itk_img = sitk.GetImageFromArray(img)
-        itk_img.SetSpacing(old_spacing)
-        itk_img.SetOrigin(old_origin)
-        itk_img.SetDirection(old_direction)
+        if 'do_separate_z' in kwargs.keys():
+            do_separate_z = kwargs['do_separate_z']
+            if do_separate_z:
+                axis = get_lowres_axis(old_spacing)
+            else:
+                axis = None
+        elif get_do_separate_z(old_spacing, separate_z_anisotropy_threshold):
+            do_separate_z = True
+            axis = get_lowres_axis(old_spacing)
+        elif get_do_separate_z(new_spacing, separate_z_anisotropy_threshold):
+            do_separate_z = True
+            axis = get_lowres_axis(new_spacing)
+        else:
+            do_separate_z = False
+            axis = None
+
+        if axis is not None:
+            if len(axis) == 3:
+                # every axis has the spacing, this should never happen, why is this code here?
+                do_separate_z = False
+            elif len(axis) == 2:
+                # this happens for spacings like (0.24, 1.25, 1.25) for example. In that case we do not want to resample
+                # separately in the out of plane axis
+                do_separate_z = False
+            else:
+                pass
 
         if is_label:
-            resamplemethod = sitk.sitkNearestNeighbor
-            order = 0
+            order = 1
+            order_z = 0
         else:
-            resamplemethod = sitk.sitkBSplineResamplerOrder3        # sitkBSplineResamplerOrder3     sitk.sitkLinear
             order = 3
+            order_z = 1
 
-        if do_separate_z:
-            old_shape = img.shape[::-1]
-            new_shape = np.array(old_shape) * old_spacing / new_spacing
-            new_shape = np.round(new_shape)
-            # x, y
-            reshaped_data = []
-            for slice_id in range(img.shape[0]):
-                reshaped_data.append(resize(img[slice_id, :, :], new_shape[:-1][::-1], order,
-                                            cval=0, mode='edge', anti_aliasing=False))
-            reshaped_data = np.stack(reshaped_data, axis=0)     # z y x
-            # z
-            resize_factor_z = old_spacing[0] / new_spacing[0]
-            resize_factor = [1, 1, resize_factor_z]
-            out_img = zoom(reshaped_data.transpose([2, 1, 0]), resize_factor, order=0, mode='nearest', cval=0.0)
-            # other info
-            new_spacing_refine = (np.array(old_shape) * old_spacing / out_img.shape).tolist()
-            out_info = img_info[0], img_info[1], new_spacing_refine
-            out_img = out_img.transpose([2, 1, 0])
-            print('new spacing:{}'.format(new_spacing_refine))
-            # if new_shape[-1] != img.shape[0]:
-            #     # copied from nnunet
-            #     rows, cols, dim = new_shape[0], new_shape[1], new_shape[2]
-            #     orig_dim, orig_cols, orig_rows = reshaped_data.shape
-            #
-            #     row_scale = float(orig_rows) / rows
-            #     col_scale = float(orig_cols) / cols
-            #     dim_scale = float(orig_dim) / dim
-            #
-            #     map_rows, map_cols, map_dims = np.mgrid[:rows, :cols, :dim]
-            #     map_rows = row_scale * (map_rows + 0.5) - 0.5
-            #     map_cols = col_scale * (map_cols + 0.5) - 0.5
-            #     map_dims = dim_scale * (map_dims + 0.5) - 0.5
-            #
-            #     coord_map = np.array([map_rows, map_cols, map_dims])
-            #
-            #     reshaped_final_data = map_coordinates(reshaped_data, coord_map,
-            #                                           order=order, cval=0, mode='nearest')[None]
-        elif kit == 'itk':
-            print('origin spacing:{}'.format(old_spacing))
-            itk_img_resized = resize_image_itk(itk_img,
-                                               newSpacing=new_spacing,
-                                               newOrigin=old_origin,
-                                               newDirection=old_direction,
-                                               resamplemethod=resamplemethod,
-                                               N4BiasCorrect=False)
-            out_img = sitk.GetArrayFromImage(itk_img_resized)  # z,y,x
-            out_info = itk_img_resized.GetOrigin(), itk_img_resized.GetDirection(), itk_img_resized.GetSpacing()
-            print('new spacing:{}'.format(old_spacing))
-        else:
-            print('origin spacing:{}'.format(old_spacing))
-            resize_factor = np.array(old_spacing, float) / new_spacing
-            out_img = zoom(img.transpose([2, 1, 0]), resize_factor, order=order, mode='constant', cval=0.0)
-            new_spacing_refine = (np.array(img.shape[::-1]) * old_spacing / out_img.shape).tolist()
-            out_info = img_info[0], img_info[1], new_spacing_refine
-            out_img = out_img.transpose([2, 1, 0])
-            print('new spacing:{}'.format(new_spacing_refine))
+        old_shape = img.shape[::-1]     # x y z
+        new_shape = np.round(((np.array(old_spacing) / np.array(new_spacing)).astype(float) * old_shape)).astype(int)
+
+        img = np.expand_dims(img.transpose([2, 1, 0]), axis=0)  # cxyz
+        out_img = resample_data_or_seg(img, new_shape, is_label, axis=axis,
+                                       order=order, do_separate_z=do_separate_z, order_z=order_z)
+        out_img = out_img[0]
+
+        # other info
+        new_spacing_refine = (np.array(old_shape) * old_spacing / out_img.shape).tolist()
+        out_info = old_origin, old_direction, new_spacing_refine
+        out_img = out_img.transpose([2, 1, 0])      # zyx
+        print('new spacing:{}'.format(new_spacing_refine))
+
         if not is_label:
             out_img = standardize(out_img, out_img.mean(), out_img.std())
-            out_img = cut_off_outliers(out_img, 0.05, 99.95, per_channel=False)
 
         return out_img, out_info
 
@@ -435,20 +411,17 @@ def main():
     if not os.path.exists(saveroot):
         os.mkdir(saveroot)
 
-    dataset = MrusPre(dataroot=dataroot, mode='mr')
-    # dataset.process_and_save_data(saveroot,
-    #                               save_csv=True,
-    #                               save_type='nii',
-    #                               if_slim=True,
-    #                               kit='sci',
-    #                               do_separate_z=False,
-    #                               new_spacing=[0.625, 0.625, 1.5])
-    dataset.print_custom_info()
+    dataset = MrusPre(dataroot=dataroot, mode='us')
+    dataset.process_and_save_data(saveroot,
+                                  save_csv=True,
+                                  split_name='split.csv',
+                                  save_type='nii',      # _process_and_save_data
+                                  if_slim=True,         # _process_and_save_data
+                                  do_separate_z=False,   # addition_process
+                                  new_spacing=[2, 2, 2])  # addition_process
+    # dataset.print_custom_info()
     # convert_dataset_for_nnunet(dataroot)
 
-    # process_and_save_data: save_root split_ratio transform save_csv split_name
-    # _process_and_save_data: modal save_type if_sllim
-    # addition_process: 'kit','do_separate_z','is_label', 'new_spacing'
     print("{:*^120s}".format('end'))
 
 

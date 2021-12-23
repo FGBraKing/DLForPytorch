@@ -55,7 +55,7 @@ class BinaryDiceLoss(nn.Module):
     """
 
     def __init__(self, ignore_index=None, reduction='mean',
-                 use_batch=True, use_sigmoid=False, smooth=1., eps=1e-6, **kwargs):
+                 use_batch=True, use_sigmoid=False, smooth=1., eps=1e-6):
         super(BinaryDiceLoss, self).__init__()
         assert reduction in ['none', 'mean', 'sum']
         # suggest set a large number when target area is large,like '10|100'
@@ -114,8 +114,8 @@ class MutiClassDiceLoss(nn.Module):
         same as BinaryDiceLoss
     """
 
-    def __init__(self, class_weight=None, ignore_index=None, normalization=None, reduction='mean',
-                 smooth=1., eps=1e-6):
+    def __init__(self, class_weight=None, ignore_index=None, normalization=None,
+                 reduction='mean', smooth=1., eps=1e-6):
         super(MutiClassDiceLoss, self).__init__()
         if class_weight is not None:
             self.class_weight = torch.Tensor(class_weight)

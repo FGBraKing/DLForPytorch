@@ -18,6 +18,7 @@ def npy_loader(path, *args, **kwargs):
 def h5_loader(path, *args, **kwargs):
     output = []
     with h5py.File(path, mode='r') as fd_read:
+        print(fd_read.keys())
         for name in args:
             if isinstance(name, str):
                 try:
@@ -339,8 +340,11 @@ def get_unpad_image(now_shape, origin_shape, *data_pad):
         return out_list
 
 
-
-
+def get_rotate_axes(axes):
+    from itertools import combinations, permutations
+    axes = np.unique(axes)
+    # number = len(axes)
+    return list(combinations(axes, 2))
 
 
 

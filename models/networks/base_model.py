@@ -379,18 +379,18 @@ class BaseModel(ABC):
     def get_optimizers(self):
         return self.optimizers
 
-    # def warp_horovod_optimizer(self):
-    #     import horovod.torch as hvd
-    #     for ind in range(len(self.optimizers)):
-    #         self.optimizers[ind] = hvd.DistributedOptimizer(optimizer=self.optimizers[ind],
-    #                                                         named_parameters=None,
-    #                                                         compression=hvd.Compression.none,
-    #                                                         backward_passes_per_step=1,
-    #                                                         op=hvd.Average,
-    #                                                         gradient_predivide_factor=1.0,
-    #                                                         num_groups=0,
-    #                                                         groups=None,
-    #                                                         sparse_as_dense=False)
+    def get_schedulers(self):
+        return self.schedulers
+
+    # optional
+    def warp_horovod_optimizer(self):
+        pass
+
+    def broadcast_horovod_parameters(self):
+        pass
+
+    def optimize_parameters_with_apex(self):
+        pass
 
 # torch.cuda.amp
 # ['GradScaler', 'autocast', 'autocast_mode', 'custom_bwd', 'custom_fwd', 'grad_scaler']

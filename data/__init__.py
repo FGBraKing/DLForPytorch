@@ -60,7 +60,7 @@ def create_test_dataset(opt):
     test_arg_dict['dataroot'] = opt.dataroot
     test_arg_dict['phase'] = opt.test_data_phase
     test_arg_dict['preprocess'] = opt.test_preprocess
-    test_arg_dict['scale'] = opt.test_scale
+    # test_arg_dict['scale'] = opt.test_scale
     test_arg_dict['target_size'] = opt.crop_size
     test_arg_dict['crop_size'] = opt.crop_size
     test_arg_dict['order_data'] = opt.order_data
@@ -160,3 +160,7 @@ class CustomDatasetDataLoader:
                 ddp_logger.warning('max_dataset_size:{}'.format(self.opt.max_dataset_size))
                 break
             yield data
+
+
+if __name__ == "__main__":
+    pass
