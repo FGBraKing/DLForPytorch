@@ -43,7 +43,7 @@ phase : 'mrtrain'
 serial_batches : true
 data_shuffle : true
 custom : true
-preprocess : 'randomscale_randomcrop_ranomrotate_centercrop_rot90_mirror_gaussianNoise_GaussianBlur_BrightnessMultiplicative_contrast_simulate_gammatransform'
+preprocess : 'elastic_randomscale_randomcrop_ranomrotate_centercrop_rot90_mirror_gaussianNoise_GaussianBlur_BrightnessMultiplicative_contrast_simulate_gammatransform'
 #
 #
 crop_size : [96, 96, 32]

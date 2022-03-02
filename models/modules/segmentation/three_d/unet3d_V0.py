@@ -4,6 +4,7 @@ import torch.nn.functional as F
 # 在反卷积后的卷积融合上减少channel
 
 
+#  upsample时保持了channels不变
 class UNet3D(nn.Module):
     """
     3DUnet model from

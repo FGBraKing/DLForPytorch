@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 # 支持各向异性pooling, 更改了channels的数量
+# 用nn.Upsample做upsample，channel数不变， 用ConvTranspose3d， channel减半
 
 
 def conv3x3(in_planes, out_planes, stride=1,
@@ -116,6 +117,7 @@ class UNet3D(nn.Module):
         self.down3 = Down(init_features*4, init_features*8, slice_down=True)
         factor = 2 if trilinear else 1
         self.down4 = Down(init_features*8, init_features*16//factor, slice_down=True)
+
         self.up1 = Up(init_features*16, init_features*8//factor, trilinear=trilinear, slice_up=True)
         self.up2 = Up(init_features*8, init_features*4//factor, trilinear=trilinear, slice_up=True)
         self.up3 = Up(init_features*4, init_features*2//factor, trilinear=trilinear, slice_up=True)

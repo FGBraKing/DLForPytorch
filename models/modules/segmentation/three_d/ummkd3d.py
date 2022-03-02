@@ -107,26 +107,26 @@ def pixel_wise_softmax_2(output_map):
 class MutiNorm3d(nn.Module):
     def __init__(self, names, norm_type='instance', **kwargs) -> None:
         super(MutiNorm3d, self).__init__()
-        names = [name for name in names if isinstance(name, str)]
+        names = [n for n in names if isinstance(n, str)]
         self.num = len(names)
         # like nn.ModuleDict
         self._norm_dict = OrderedDict()
-        for name in names:
+        for n in names:
             if norm_type.lower() == 'instance':
-                self._norm_dict[name] = nn.InstanceNorm3d(**kwargs)
+                self._norm_dict[n] = nn.InstanceNorm3d(**kwargs)
             elif norm_type.lower() == 'batch':
-                self._norm_dict[name] = nn.BatchNorm3d(**kwargs)
+                self._norm_dict[n] = nn.BatchNorm3d(**kwargs)
             elif norm_type.lower() == 'layer':
-                self._norm_dict[name] = nn.LayerNorm(**kwargs)
+                self._norm_dict[n] = nn.LayerNorm(**kwargs)
             elif norm_type.lower() == 'group':
-                self._norm_dict[name] = nn.GroupNorm(**kwargs)
+                self._norm_dict[n] = nn.GroupNorm(**kwargs)
             else:
-                self._norm_dict[name] = nn.BatchNorm3d(**kwargs)
+                self._norm_dict[n] = nn.BatchNorm3d(**kwargs)
         self.norm = nn.ModuleDict(self._norm_dict)
         # self.norm_dict.__setitem__(name, nn.ReLU)
 
-    def forward(self, x, name):
-        return self.norm[name](x)
+    def forward(self, x, key):
+        return self.norm[key](x)
 
 
 class ConvMutiNormLrelu3d(nn.Module):

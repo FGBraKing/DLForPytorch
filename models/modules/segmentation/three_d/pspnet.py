@@ -21,7 +21,7 @@ class PSPBlock(nn.Module):
         if pool_size == 1:
             use_bathcnorm = False  # PyTorch does not support BatchNorm for 1x1 shape
         self.pool = nn.Sequential(
-            nn.AdaptiveAvgPool2d(output_size=(pool_size, pool_size)),
+            nn.AdaptiveAvgPool3d(output_size=(pool_size, pool_size)),
             modules.Conv3dReLU(in_channels, out_channels, (1, 1), use_batchnorm=use_bathcnorm)
         )
 
@@ -70,7 +70,7 @@ class PSPDecoder(nn.Module):
             use_batchnorm=use_batchnorm,
         )
 
-        self.dropout = nn.Dropout2d(p=dropout)
+        self.dropout = nn.Dropout3d(p=dropout)
 
     def forward(self, *features):
         x = features[-1]
@@ -98,7 +98,7 @@ class PSPNet(SegmentationModel):
         encoder_weights: One of **None** (random initialization), **"imagenet"** (pre-training on ImageNet) and
             other pretrained weights (see table with available weights for each encoder_name)
         psp_out_channels: A number of filters in Spatial Pyramid
-        psp_use_batchnorm: If **True**, BatchNorm2d layer between Conv2D and Activation layers
+        psp_use_batchnorm: If **True**, BatchNorm3d layer between Conv3d and Activation layers
             is used. If **"inplace"** InplaceABN will be used, allows to decrease memory consumption.
             Available options are **True, False, "inplace"**
         psp_dropout: Spatial dropout rate in [0, 1) used in Spatial Pyramid

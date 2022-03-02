@@ -380,9 +380,3 @@ class DeepLabV3Plus(SegmentationModel):
         else:
             self.classification_head = None
 
-
-
-
-
-
-

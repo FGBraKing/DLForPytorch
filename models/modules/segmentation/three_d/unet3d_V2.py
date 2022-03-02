@@ -403,7 +403,7 @@ class TransposeConvUpsampling(AbstractUpsampling):
             used only if transposed_conv is True
     """
 
-    def __init__(self, in_channels=None, out_channels=None, kernel_size=3, scale_factor=(2, 2, 2)):
+    def __init__(self, in_channels=None, out_channels=None, kernel_size=4, scale_factor=(2, 2, 2)):
         # make sure that the output size reverses the MaxPool3d from the corresponding encoder
         upsample = nn.ConvTranspose3d(in_channels, out_channels, kernel_size=kernel_size, stride=scale_factor,
                                       padding=1)
@@ -511,7 +511,8 @@ class Abstract3DUNet(nn.Module):
         x = self.final_conv(x)
 
         # apply final_activation (i.e. Sigmoid or Softmax) only during prediction. During training the network outputs
-        # logits and it's up to the user to normalize it before visualising with tensorboard or computing validation metric
+        # logits and it's up to the user to normalize it
+        # before visualising with tensorboard or computing validation metric
         if self.testing and self.final_activation is not None:
             x = self.final_activation(x)
 

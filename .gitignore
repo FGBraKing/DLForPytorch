@@ -1,0 +1,9 @@
+traces/
+.idea/
+.ipynb_checkpoints/
+.gitignore
+*.tar.gz
+*ipynb
+*.zip
+*.pkl
+*.pyc
